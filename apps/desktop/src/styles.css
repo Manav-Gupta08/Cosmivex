@@ -97,6 +97,23 @@ h1 { margin: 0; font-size: 21px; font-weight: 500; }
 .tree-order { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 5px; border-radius: 3px; background: transparent; color: var(--muted); font-size: 11px; }
 .tree-order[aria-pressed="true"] { color: #c5dbc7; background: #1d2b23; }
 .tree-marker { color: var(--muted); }
+.activity-filter { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); padding: 8px 0; }
+.activity-filter input { accent-color: var(--green); }
+.activity-gap { color: #ddb38f; font-size: 11px; margin: 5px 0; }
+.event-list { list-style: none; padding: 0; margin: 0; overflow: auto; flex: 1; min-height: 0; }
+.event-list li { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.event-list time { font: 9px 'IBM Plex Mono', monospace; color: var(--muted); }
+.event-list li > span { color: #b6c7b9; }
+.event-list li[data-kind="PROCESS_TERMINATED"] > span { color: #cea296; }
+.event-list button { grid-column: 2; display: flex; justify-content: space-between; text-align: left; gap: 8px; min-width: 0; padding: 2px 0; background: none; overflow-wrap: anywhere; font-size: 11px; }
+.event-list button:disabled { opacity: 0.7; }
+.event-list small { grid-column: 2; color: var(--muted); }
+.event-list button span { color: var(--muted); font: 10px 'IBM Plex Mono', monospace; }
+@media (max-height: 720px) {
+  .app-shell .view-tools { flex-direction: row; top: auto; bottom: 72px; left: 20px; gap: 6px; }
+  .view-tools .tool-divider { width: 1px; height: 18px; margin: auto 4px; }
+  .app-shell .process-browser { bottom: 123px; }
+}
 @media (max-width: 900px) {
   .topbar { gap: 15px; padding: 0 20px; }
   .brand { gap: 8px; }

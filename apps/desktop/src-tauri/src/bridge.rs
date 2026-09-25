@@ -1,5 +1,6 @@
 use crate::native::{Engine, Health, Profile};
-use serde::Serialize;
+pub use crate::stream::Frame;
+use crate::stream::{self, Transfer};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -7,19 +8,12 @@ use std::sync::{
 use std::thread::JoinHandle;
 use tauri::ipc::Channel;
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Frame {
-    subscription_id: u32,
-    #[serde(flatten)]
-    health: Health,
-}
-
 struct Subscriber {
     id: u32,
     channel: Channel<Frame>,
-    in_flight: Option<u64>,
-    delivered: u64,
+    base: Option<Health>,
+    pending: Option<Transfer>,
+    next_transfer: u64,
 }
 
 struct Delivery {
@@ -31,18 +25,42 @@ struct Delivery {
 impl Delivery {
     fn send_latest(&mut self) {
         if let Some(subscriber) = &mut self.subscriber {
-            if subscriber.in_flight.is_some() || self.latest.0 <= subscriber.delivered {
+            if subscriber.pending.is_some()
+                || subscriber
+                    .base
+                    .as_ref()
+                    .is_some_and(|base| base.sequence == self.latest.1.sequence)
+            {
                 return;
             }
-            let frame = Frame {
-                subscription_id: subscriber.id,
-                health: self.latest.1.clone(),
-            };
-            if subscriber.channel.send(frame).is_err() {
-                self.subscriber = None;
-            } else {
-                subscriber.in_flight = Some(self.latest.0);
-                subscriber.delivered = self.latest.0;
+            let transfer = stream::encode(subscriber.id, subscriber.base.as_ref(), &self.latest.1)
+                .and_then(|body| {
+                    subscriber.next_transfer = subscriber
+                        .next_transfer
+                        .checked_add(1)
+                        .ok_or("Transfer ID exhausted")?;
+                    Transfer::new(subscriber.next_transfer, self.latest.1.clone(), body)
+                });
+            match transfer {
+                Ok(transfer) => {
+                    if subscriber
+                        .channel
+                        .send(transfer.frame(subscriber.id))
+                        .is_err()
+                    {
+                        self.subscriber = None;
+                    } else {
+                        subscriber.pending = Some(transfer);
+                    }
+                }
+                Err(message) => {
+                    let _ = subscriber.channel.send(Frame::Error {
+                        protocol_version: 4,
+                        subscription_id: subscriber.id,
+                        message,
+                    });
+                    self.subscriber = None;
+                }
             }
         }
     }
@@ -112,22 +130,50 @@ impl Bridge {
         delivery.subscriber = Some(Subscriber {
             id,
             channel,
-            in_flight: None,
-            delivered: 0,
+            base: None,
+            pending: None,
+            next_transfer: 0,
         });
         delivery.send_latest();
         Ok(id)
     }
 
-    pub fn ack(&self, id: u32, sequence: &str) -> Result<(), String> {
-        let sequence = sequence.parse::<u64>().map_err(|_| "Invalid sequence")?;
+    pub fn ack(&self, id: u32, transfer_id: &str, chunk_index: usize) -> Result<(), String> {
+        let transfer_id = transfer_id
+            .parse::<u64>()
+            .map_err(|_| "Invalid transfer ID")?;
         let mut delivery = self
             .delivery
             .lock()
             .map_err(|_| "Core bridge unavailable")?;
         if let Some(subscriber) = &mut delivery.subscriber {
-            if subscriber.id == id && subscriber.in_flight == Some(sequence) {
-                subscriber.in_flight = None;
+            if subscriber.id != id {
+                return Ok(());
+            }
+            if let Some(transfer) = &mut subscriber.pending {
+                if transfer.id != transfer_id || transfer.index != chunk_index {
+                    return Ok(());
+                }
+                if transfer.advance() {
+                    subscriber.base = subscriber.pending.take().map(|transfer| transfer.health);
+                    delivery.send_latest();
+                } else if subscriber.channel.send(transfer.frame(id)).is_err() {
+                    delivery.subscriber = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn resync(&self, id: u32) -> Result<(), String> {
+        let mut delivery = self
+            .delivery
+            .lock()
+            .map_err(|_| "Core bridge unavailable")?;
+        if let Some(subscriber) = &mut delivery.subscriber {
+            if subscriber.id == id {
+                subscriber.base = None;
+                subscriber.pending = None;
                 delivery.send_latest();
             }
         }
@@ -198,10 +244,14 @@ mod tests {
             delivery.send_latest();
         }
         assert_eq!(count.load(Ordering::Relaxed), 1);
-        bridge.ack(first, "999").unwrap();
+        bridge.ack(first, "999", 0).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 1);
-        bridge.ack(first, "1").unwrap();
+        bridge.ack(first, "1", 0).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 2);
+        bridge.resync(first).unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 3);
+        bridge.ack(first, "2", 0).unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 3);
         let second = bridge.subscribe(Channel::new(|_| Ok(()))).unwrap();
         bridge.unsubscribe(first).unwrap();
         assert_eq!(
@@ -218,6 +268,70 @@ mod tests {
         bridge.unsubscribe(second).unwrap();
         assert!(bridge.delivery.lock().unwrap().subscriber.is_none());
         bridge.shutdown();
+        bridge.shutdown();
+    }
+
+    #[test]
+    fn multi_chunk_transfer_advances_base_only_after_last_ack() {
+        let bridge = Bridge::new().unwrap();
+        let count = Arc::new(AtomicUsize::new(0));
+        let sent = count.clone();
+        let id = bridge
+            .subscribe(Channel::new(move |_| {
+                sent.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }))
+            .unwrap();
+        {
+            let mut delivery = bridge.delivery.lock().unwrap();
+            let health = delivery.latest.1.clone();
+            let subscriber = delivery.subscriber.as_mut().unwrap();
+            subscriber.pending =
+                Some(Transfer::new(2, health, "x".repeat(stream::CHUNK_BYTES * 2 + 1)).unwrap());
+            subscriber.next_transfer = 2;
+        }
+        bridge.ack(id, "2", 0).unwrap();
+        assert!(bridge
+            .delivery
+            .lock()
+            .unwrap()
+            .subscriber
+            .as_ref()
+            .unwrap()
+            .base
+            .is_none());
+        assert_eq!(count.load(Ordering::Relaxed), 2);
+        bridge.ack(id, "2", 0).unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 2);
+        bridge.ack(id, "2", 1).unwrap();
+        assert!(bridge
+            .delivery
+            .lock()
+            .unwrap()
+            .subscriber
+            .as_ref()
+            .unwrap()
+            .base
+            .is_none());
+        bridge.ack(id, "2", 2).unwrap();
+        assert!(bridge
+            .delivery
+            .lock()
+            .unwrap()
+            .subscriber
+            .as_ref()
+            .unwrap()
+            .base
+            .is_some());
+        assert!(bridge
+            .delivery
+            .lock()
+            .unwrap()
+            .subscriber
+            .as_ref()
+            .unwrap()
+            .pending
+            .is_none());
         bridge.shutdown();
     }
 }

@@ -29,6 +29,7 @@ class EventJournal {
 public:
     std::shared_ptr<const EventWindow> observe(const ProcessSnapshot& snapshot, uint64_t monotonic_ns);
     std::shared_ptr<const EventWindow> pause(uint64_t observed_at_unix_ms, uint64_t monotonic_ns);
+    std::shared_ptr<const EventWindow> current() const { return window(); }
 private:
     struct Previous {
         uint64_t generation;

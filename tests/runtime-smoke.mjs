@@ -1,5 +1,6 @@
 import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
 import { PerspectiveCamera, Vector3 } from 'three'
 
 const native = process.argv.includes('--native')
@@ -66,6 +67,37 @@ try {
     await expect(page.getByTestId('connection-status')).toHaveText('Native core connected')
     await page.getByRole('button', { name: 'Engine diagnostics' }).click()
     await expect.poll(async () => Number(await page.getByTestId('process-instances').innerText()), { timeout: 6000 }).toBeGreaterThan(0)
+    await expect.poll(async () => Number(await page.getByTestId('delta-batches').innerText()), { timeout: 6000 }).toBeGreaterThan(0)
+    const fullStates = Number(await page.getByTestId('full-snapshots').innerText())
+    await page.getByRole('button', { name: 'Resync stream', exact: true }).click()
+    await expect.poll(async () => Number(await page.getByTestId('full-snapshots').innerText())).toBeGreaterThan(fullStates)
+    const debuggerSession = await page.context().newCDPSession(page)
+    await debuggerSession.send('Debugger.enable')
+    await debuggerSession.send('Debugger.pause')
+    const transient = spawn(process.execPath, ['-e', 'setTimeout(() => process.exit(0), 4500)'], { stdio: 'ignore', windowsHide: true })
+    const transientPid = transient.pid
+    try {
+      await expect.poll(() => transient.exitCode, { timeout: 8000, intervals: [250] }).toBe(0)
+      await debuggerSession.send('Debugger.resume')
+      await debuggerSession.detach()
+      await expect(page.getByTestId('connection-status')).toHaveText('Native core connected', { timeout: 8000 })
+      await page.getByRole('button', { name: 'Close diagnostics' }).click()
+      await page.getByRole('button', { name: 'Recent activity', exact: true }).click()
+      await expect(page.locator(`li[data-kind="PROCESS_CREATED"][data-pid="${transientPid}"]`)).toBeVisible({ timeout: 6000 })
+      await expect(page.locator(`li[data-kind="PROCESS_TERMINATED"][data-pid="${transientPid}"]`)).toBeVisible({ timeout: 6000 })
+      await page.screenshot({ path: 'artifacts/native-lifecycle.png' })
+      await page.setViewportSize({ width: 400, height: 740 })
+      expect(await page.getByRole('complementary', { name: 'Recent activity' }).evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false)
+      await page.screenshot({ path: 'artifacts/native-narrow-activity.png' })
+      await page.setViewportSize({ width: 1360, height: 820 })
+      await page.getByRole('button', { name: 'Close activity' }).click()
+      await page.getByRole('button', { name: 'Engine diagnostics' }).click()
+      console.log(JSON.stringify({ heldAcknowledgementRecovery: true, transientPid, lifecycleRetained: true }))
+    } finally {
+      if (transient.exitCode === null) transient.kill()
+      await debuggerSession.send('Debugger.resume').catch(() => {})
+      await debuggerSession.detach().catch(() => {})
+    }
     await page.getByRole('button', { name: 'Close diagnostics' }).click()
     const workloadPid = process.env.UOS_TEST_PID
     if (workloadPid) {
@@ -151,10 +183,12 @@ try {
     await page.screenshot({ path: 'artifacts/native-narrow-hierarchy.png' })
     await page.setViewportSize({ width: 1360, height: 820 })
     await page.getByRole('button', { name: 'Universe view', exact: true }).click()
-    await page.getByRole('checkbox', { name: 'Process collection' }).uncheck()
+    await page.getByRole('checkbox', { name: 'Process collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Process collection' })).not.toBeChecked({ timeout: 6000 })
     await expect(page.getByTestId('process-count')).toHaveText('0')
     await expect(page.getByTestId('galaxy-count')).toHaveText('0')
-    await page.getByRole('checkbox', { name: 'Process collection' }).check()
+    await page.getByRole('checkbox', { name: 'Process collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Process collection' })).toBeChecked({ timeout: 6000 })
     await expect.poll(async () => Number(await page.getByTestId('process-count').innerText())).toBeGreaterThan(0)
     await page.getByRole('button', { name: 'Reset camera' }).click()
     await page.getByRole('button', { name: 'Engine diagnostics' }).click()

@@ -4,10 +4,10 @@ const unsignedSafeInteger = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
 export const profileSchema = z.enum(['eco', 'normal', 'cinematic'])
 export type Profile = z.infer<typeof profileSchema>
 
-const unsigned64 = z.string().regex(/^(0|[1-9][0-9]{0,19})$/).pipe(z.string().refine(value => BigInt(value) <= 18446744073709551615n))
+export const unsigned64 = z.string().regex(/^(0|[1-9][0-9]{0,19})$/).pipe(z.string().refine(value => BigInt(value) <= 18446744073709551615n))
 const unsigned32 = z.number().int().min(0).max(0xffffffff)
-const processId = z.string().regex(/^[0-9]+:[1-9][0-9]*$/).max(32)
-const galaxyId = z.string().regex(/^g:[0-9]+:[1-9][0-9]*$/).max(34)
+export const processId = z.string().regex(/^[0-9]+:[1-9][0-9]*$/).max(32)
+export const galaxyId = z.string().regex(/^g:[0-9]+:[1-9][0-9]*$/).max(34)
 export const processSchema = z.strictObject({
   id: processId,
   pid: unsigned32,
@@ -68,7 +68,7 @@ export type ProcessSnapshot = z.infer<typeof processSnapshotSchema>
 
 export const coreFrameSchema = z.strictObject({
   subscriptionId: z.number().int().positive().max(0xffffffff),
-  protocolVersion: z.literal(3),
+  protocolVersion: z.literal(4),
   abiVersion: z.literal(1),
   sequence: z.string().regex(/^[1-9][0-9]{0,19}$/).pipe(z.string().refine(value => BigInt(value) <= 18446744073709551615n)),
   uptimeMs: unsignedSafeInteger,

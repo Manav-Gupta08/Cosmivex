@@ -93,7 +93,7 @@ impl Engine {
                 Ok(Some((
                     raw.sequence,
                     Health {
-                        protocol_version: 3,
+                        protocol_version: 4,
                         abi_version: raw.abi_version,
                         sequence: raw.sequence.to_string(),
                         uptime_ms: raw.uptime_ms,
@@ -152,7 +152,7 @@ mod tests {
         assert_eq!(frame.enabled_collectors, 0);
         let json = serde_json::to_value(&frame).unwrap();
         assert_eq!(json["sequence"], "1");
-        assert_eq!(json["protocolVersion"], 3);
+        assert_eq!(json["protocolVersion"], 4);
         engine.set_profile(Profile::Eco).unwrap();
         let (_, next) = engine.wait(sequence, 100).unwrap().unwrap();
         assert_eq!(next.interval_ms, 5000);

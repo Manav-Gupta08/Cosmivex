@@ -14,6 +14,44 @@ enum { UOS_TIMEOUT = 0, UOS_FRAME = 1, UOS_STOPPED = 2, UOS_INVALID = -1, UOS_ER
 
 typedef struct uos_engine uos_engine;
 typedef struct uos_process_snapshot uos_process_snapshot;
+typedef struct uos_delta uos_delta;
+
+typedef struct uos_event_info {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t count;
+    uint32_t reserved;
+    uint64_t last_sequence;
+    uint64_t evicted_count;
+} uos_event_info;
+
+typedef struct uos_event_row {
+    uint64_t sequence;
+    uint64_t observed_at_unix_ms;
+    uint64_t previous_observed_at_unix_ms;
+    uint64_t monotonic_ns;
+    uint64_t generation;
+    uint32_t pid;
+    uint32_t kind;
+    uint32_t reason;
+    uint32_t name_length;
+    const char* name;
+} uos_event_row;
+
+typedef struct uos_delta_info {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t count;
+    uint32_t reserved;
+} uos_delta_info;
+
+typedef struct uos_change_row {
+    uint32_t kind;
+    uint32_t index;
+    uint32_t pid;
+    uint32_t reserved;
+    uint64_t generation;
+} uos_change_row;
 
 typedef struct uos_process_info {
     uint32_t abi_version;
@@ -90,6 +128,12 @@ int32_t uos_acquire_processes(uos_engine* engine, uint64_t sequence, uos_process
 int32_t uos_process_info_read(const uos_process_snapshot* snapshot, uos_process_info* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_process_row* output, uint32_t size) UOS_NOEXCEPT;
 void uos_release_processes(uos_process_snapshot* snapshot) UOS_NOEXCEPT;
+int32_t uos_event_info_read(const uos_process_snapshot* snapshot, uos_event_info* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_event_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_event_row* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_delta_create(const uos_process_snapshot* base, const uos_process_snapshot* current, uos_delta** output) UOS_NOEXCEPT;
+int32_t uos_delta_info_read(const uos_delta* delta, uos_delta_info* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_delta_row_read(const uos_delta* delta, uint32_t index, uos_change_row* output, uint32_t size) UOS_NOEXCEPT;
+void uos_delta_release(uos_delta* delta) UOS_NOEXCEPT;
 int32_t uos_model_info_read(const uos_process_snapshot* snapshot, uos_model_info* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_relationship_read(const uos_process_snapshot* snapshot, uint32_t index, uos_relationship* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_galaxy_read(const uos_process_snapshot* snapshot, uint32_t index, uos_galaxy* output, uint32_t size) UOS_NOEXCEPT;

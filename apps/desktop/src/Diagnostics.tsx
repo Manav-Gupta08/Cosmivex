@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { RefreshCw, X } from 'lucide-react'
 import { useCoreStore } from './state/core'
 import { renderMetrics } from '../universe/metrics'
+import { resyncCore } from './transport'
 
 export function Diagnostics({ close }: { close: () => void }) {
   const frame = useCoreStore(state => state.frame)
   const status = useCoreStore(state => state.status)
+  const lastDelivery = useCoreStore(state => state.lastDelivery)
+  const fullSnapshots = useCoreStore(state => state.fullSnapshots)
+  const deltaBatches = useCoreStore(state => state.deltaBatches)
+  const changedRows = useCoreStore(state => state.changedRows)
+  const cursor = useCoreStore(state => state.eventCursor)
+  const evictions = useCoreStore(state => state.evictedEvents)
   const [metrics, setMetrics] = useState({ fps: 0, bytesPerSecond: 0, ...renderMetrics })
   useEffect(() => {
     let previousTime = performance.now()
@@ -42,12 +49,20 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>Galaxy instances</dt><dd data-testid="galaxy-instances">{metrics.galaxyInstances}</dd>
       <dt>Parent links</dt><dd data-testid="parent-links">{metrics.parentLinks}</dd>
       <dt>Snapshot payload RX</dt><dd>{status === 'connected' ? `${metrics.bytesPerSecond.toFixed(0)} B/s` : 'Unavailable'}</dd>
+      <dt>Last delivery</dt><dd data-testid="last-delivery">{lastDelivery ?? 'Unavailable'}</dd>
+      <dt>Full states</dt><dd data-testid="full-snapshots">{fullSnapshots}</dd>
+      <dt>Delta batches</dt><dd data-testid="delta-batches">{deltaBatches}</dd>
+      <dt>Changed process rows</dt><dd data-testid="changed-rows">{changedRows}</dd>
+      <dt>Event cursor</dt><dd data-testid="event-cursor">{cursor}</dd>
+      <dt>Journal evictions</dt><dd>{evictions}</dd>
+      <dt>Lifecycle effects</dt><dd>{metrics.lifecycleEffects}</dd>
       <dt>Collector duration</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.collectionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Model build</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.modelBuildMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Logical processors</dt><dd>{frame?.processes.observedAtUnixMs ? frame.processes.logicalCpus : 'Unavailable'}</dd>
       <dt>Core / frontend CPU</dt><dd>Not measured</dd>
       <dt>Memory</dt><dd>Not measured</dd>
     </dl></div>
+    <button className="focus-process" disabled={status !== 'connected'} onClick={() => { void resyncCore().catch((error: unknown) => useCoreStore.getState().fail(String(error))) }}><RefreshCw size={15} /> Resync stream</button>
     <div className="panel-section"><h3>Collection permissions</h3><p>Standard user. {frame?.enabledCollectors ? 'Process metadata only.' : 'Collection off.'} History off.</p></div>
   </aside>
 }

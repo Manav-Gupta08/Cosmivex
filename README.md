@@ -5,11 +5,14 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 3 is implemented and verified in the actual Windows application. Real
+Phase 4 is implemented and verified in the actual Windows application. Real
 Windows processes appear as instanced stars in selectable, inferred galaxies.
 Switch between the galaxy universe and process hierarchy, search by name/PID,
 inspect processes or groups, and navigate validated parent links. Relationships,
 membership, CPU and working-set measurements come from C++, not the renderer.
+Native lifecycle observations now feed a bounded recent-activity journal and
+chunked delta stream. The UI can resynchronize without applying partial graphs;
+process appearances/disappearances have restrained, profile-aware markers.
 
 Process metadata collection is enabled by default and can be switched off in the
 bottom bar. Missing CPU/memory values remain unavailable; an exited selection
@@ -17,13 +20,14 @@ retains its last observation with an explicit status. No synthetic process data
 is supplied to the application. Grouping is conservative: only connected processes
 with validated ancestry and identical observed executable paths share a galaxy.
 It is not an OS application registry; cross-image helpers can remain separate.
-Network, filesystem, SQLite recording, replay, LOD benchmarks, and effects remain
+Network, filesystem, SQLite recording, replay, LOD benchmarks, and resource-driven effects remain
 later phases. The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 3 verification](docs/phase-3.md) for current results and open limits;
+See [Phase 4 verification](docs/phase-4.md) for current results and open limits;
+[Phase 3 verification](docs/phase-3.md) preserves the hierarchy/grouping baseline;
 [Phase 2 verification](docs/phase-2.md) preserves the process-telemetry baseline and
 [Phase 1 verification](docs/phase-1.md) preserves the foundation baseline.
 
@@ -91,6 +95,10 @@ that specific test process and verifies disappearance. It also checks real galax
 membership, direct ring picking, parent navigation, and both spatial layouts.
 It does not stop unrelated
 processes. The workload is test-only and exits on its own after two minutes.
+The verifier also pauses WebView JavaScript with CDP while a separate short-lived
+test process appears and exits. It resumes the renderer and verifies that native
+collection continued and the lifecycle observations were retained. Debugging is
+enabled only for this verification child, never an ordinary application launch.
 
 Screenshots and measured samples are generated under ignored `artifacts/`.
 The icon sources are generated locally by `scripts/generate-icon.ps1`; generated
@@ -108,7 +116,8 @@ PNG/ICO assets are committed so building does not require regenerating them.
   root, members and aggregates. CPU/memory sample coverage is shown explicitly.
   These are inferred same-image ancestry groups, not verified product boundaries.
 - Diagnostics are optional. They show core state, actual draw counts and received
-  health-payload throughput. GPU timing, CPU attribution, and memory readouts are
+  wire-payload throughput, delta/full-state counts and event cursors. The resync
+  button requests a fresh complete state. GPU timing, CPU attribution, and memory readouts are
   explicitly unavailable in-app until those measurements are implemented.
 - Eco: 2 s wait between process collections, 30 fps draw ceiling, pixel ratio 1,
   no MSAA. With collection off, health cadence reduces to 5 s.
@@ -117,10 +126,20 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - With collection off, Normal/Cinematic publish health only every 2 s.
 - All modes stop drawing at rest and suspend the render loop while hidden. An idle
   scene correctly reports no new frames. Diagnostic refresh runs only while open.
+- Recent activity retains at most 256 observed events in memory and shows 25 per
+  page. "First observed" / "No longer observed" are sampling statements, not exact
+  OS lifecycle timestamps or crash diagnoses. Startup/recovery uses a baseline;
+  pause and incomplete collection are explicit, not mass termination events.
+- Normal mode uses short demand-rendered lifecycle markers. Cinematic animates
+  pulses for at most 900 ms; Eco and reduced-motion settings suppress them. At most
+  32 effects can exist at once. Old/replayed events do not create fresh effects.
 - Quality switches into/out of Cinematic recreate the canvas and currently reset
   the camera. CPU/memory visual scaling and effects remain a later phase.
-- One immutable latest process snapshot and one acknowledged channel frame prevent
+- One immutable latest process snapshot and one acknowledged channel chunk prevent
   event backlog. The snapshot includes the matching native hierarchy and groups.
+  C++ computes deltas against the last fully acknowledged state. Protocol 4 uses
+  256 KiB UTF-8-safe payload chunks (under 1 MiB encoded per message), a 16 MiB
+  serialization/reassembly limit, atomic application and wrong-base resync.
   Metric-only updates reuse layouts and GPU matrices; parent links use a batched
   geometry, and galaxies/processes use instancing. Native collection happens
   outside the shared-state lock. Successful image queries are lifetime-cached.
@@ -131,7 +150,8 @@ PNG/ICO assets are committed so building does not require regenerating them.
 ## Privacy and Git workflow
 
 No packet payload capture, file-content reading, process control, filesystem
-mutation, elevated tracing, AI APIs, or history database. WebView2 may
+mutation, elevated tracing, AI APIs, or history database. The recent event journal
+is bounded volatile metadata, not persistent history/replay. WebView2 may
 maintain its standard application profile/cache; that is separate from telemetry
 history. All fonts and assets are packaged locally. Diagnostic test fixtures are
 test-only and never included as production system observations.

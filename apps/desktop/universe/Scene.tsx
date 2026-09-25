@@ -5,6 +5,7 @@ import type { Profile } from '../../../shared/protocol/core'
 import { renderMetrics } from './metrics'
 import { ProcessStars } from './ProcessStars'
 import { GalaxySystems, ParentLinks } from './GalaxySystems'
+import { LifecycleEffects } from './LifecycleEffects'
 import { useCoreStore } from '../src/state/core'
 
 const initialCamera: [number, number, number] = [48, 38, 60]
@@ -99,6 +100,7 @@ export const UniverseScene = memo(function UniverseScene({ profile, reset }: { p
         <GalaxySystems />
         <ParentLinks />
         <ProcessStars />
+        <LifecycleEffects profile={profile} />
         <Navigation reset={reset} />
         <RenderBudget profile={profile} onFailure={() => setLost(true)} />
       </Canvas>}

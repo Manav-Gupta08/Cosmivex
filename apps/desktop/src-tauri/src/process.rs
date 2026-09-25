@@ -1,3 +1,4 @@
+use crate::changes::{self, Events};
 use crate::universe::{self, Galaxy};
 use serde::Serialize;
 use std::{ffi::c_void, mem::size_of, ptr::NonNull, sync::Arc};
@@ -45,7 +46,10 @@ extern "C" {
     fn uos_release_processes(snapshot: *mut c_void);
 }
 
-struct SnapshotHandle(NonNull<c_void>);
+#[derive(Debug)]
+pub(crate) struct SnapshotHandle(pub(crate) NonNull<c_void>);
+unsafe impl Send for SnapshotHandle {}
+unsafe impl Sync for SnapshotHandle {}
 impl Drop for SnapshotHandle {
     fn drop(&mut self) {
         unsafe { uos_release_processes(self.0.as_ptr()) }
@@ -75,6 +79,10 @@ pub struct Process {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessSnapshot {
+    #[serde(skip)]
+    pub native: Arc<SnapshotHandle>,
+    #[serde(skip)]
+    pub events: Events,
     pub observed_at_unix_ms: u64,
     pub logical_cpus: u32,
     pub error: u32,
@@ -155,7 +163,10 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
         });
     }
     let (galaxies, model_build_ms) = universe::read(handle.0.as_ptr(), &mut rows)?;
+    let events = changes::events(handle.0.as_ptr())?;
     Ok(Some(Arc::new(ProcessSnapshot {
+        native: Arc::new(handle),
+        events,
         observed_at_unix_ms: info.observed_at_unix_ms,
         logical_cpus: info.logical_cpus,
         error: info.error,

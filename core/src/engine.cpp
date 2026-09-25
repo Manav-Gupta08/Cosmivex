@@ -1,6 +1,7 @@
 #include "universe/engine.h"
 #include "universe/process.hpp"
 #include "universe/model.hpp"
+#include "universe/changes.hpp"
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -20,10 +21,24 @@ static_assert(sizeof(uos_process_row) == 72);
 static_assert(sizeof(uos_model_info) == 24);
 static_assert(sizeof(uos_relationship) == 16);
 static_assert(sizeof(uos_galaxy) == 48);
+static_assert(sizeof(uos_event_info) == 32);
+static_assert(sizeof(uos_event_row) == 64);
+static_assert(sizeof(uos_delta_info) == 16);
+static_assert(sizeof(uos_change_row) == 24);
+
+uint64_t unix_ms() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<Milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+uint64_t monotonic_ns() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(SteadyClock::now().time_since_epoch()).count());
+}
 
 struct uos_process_snapshot {
     std::shared_ptr<const universe::ProcessSnapshot> value;
 };
+
+struct uos_delta { std::vector<uos_change_row> rows; };
 
 struct uos_engine {
     std::mutex mutex;
@@ -34,6 +49,7 @@ struct uos_engine {
     SteadyClock::time_point started = SteadyClock::now();
     uos_health latest{UOS_ABI_VERSION, sizeof(uos_health), 0, 0, 0, 2000, UOS_NORMAL, 0, 0};
     std::shared_ptr<const universe::ProcessSnapshot> processes = std::make_shared<universe::ProcessSnapshot>();
+    universe::EventJournal journal;
     std::jthread worker;
 
     uos_engine() {
@@ -46,12 +62,13 @@ struct uos_engine {
                 const auto revision = configuration_revision;
                 if (collect_processes) {
                     lock.unlock();
-                    std::shared_ptr<const universe::ProcessSnapshot> sampled;
+                    std::shared_ptr<universe::ProcessSnapshot> sampled;
                     try {
                         sampled = std::make_shared<universe::ProcessSnapshot>(tracker.normalize(collector->collect(stop)));
                     } catch (...) {
                         auto failed = std::make_shared<universe::ProcessSnapshot>();
                         failed->error = 8;
+                        failed->observed_at_unix_ms = unix_ms();
                         sampled = std::move(failed);
                     }
                     lock.lock();
@@ -60,6 +77,7 @@ struct uos_engine {
                         if (!collect_processes) tracker.reset();
                         continue;
                     }
+                    sampled->events = journal.observe(*sampled, monotonic_ns());
                     processes = std::move(sampled);
                     publish();
                     changed.notify_all();
@@ -132,7 +150,9 @@ int32_t uos_set_process_collection(uos_engine* engine, uint32_t enabled) noexcep
         if (engine->collect_processes == (enabled != 0)) return UOS_FRAME;
         engine->collect_processes = enabled != 0;
         engine->latest.enabled_collectors = enabled;
-        engine->processes = std::make_shared<universe::ProcessSnapshot>();
+        auto cleared = std::make_shared<universe::ProcessSnapshot>();
+        cleared->events = enabled ? engine->journal.current() : engine->journal.pause(unix_ms(), monotonic_ns());
+        engine->processes = std::move(cleared);
         engine->update_interval();
         ++engine->configuration_revision;
         engine->publish();
@@ -174,6 +194,53 @@ int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t inde
 }
 
 void uos_release_processes(uos_process_snapshot* snapshot) noexcept { delete snapshot; }
+
+int32_t uos_event_info_read(const uos_process_snapshot* snapshot, uos_event_info* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_event_info)) return UOS_INVALID;
+    const auto& events = snapshot->value->events;
+    *output = {UOS_ABI_VERSION, sizeof(uos_event_info), events ? static_cast<uint32_t>(events->events.size()) : 0u, 0,
+        events ? events->last_sequence : 0, events ? events->evicted_count : 0};
+    return UOS_FRAME;
+}
+
+int32_t uos_event_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_event_row* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_event_row) || !snapshot->value->events
+        || index >= snapshot->value->events->events.size()) return UOS_INVALID;
+    const auto& event = snapshot->value->events->events[index];
+    *output = {event.sequence, event.observed_at_unix_ms, event.previous_observed_at_unix_ms, event.monotonic_ns, event.generation,
+        event.pid, static_cast<uint32_t>(event.kind), static_cast<uint32_t>(event.reason), static_cast<uint32_t>(event.name.size()), event.name.data()};
+    return UOS_FRAME;
+}
+
+int32_t uos_delta_create(const uos_process_snapshot* base, const uos_process_snapshot* current, uos_delta** output) noexcept {
+    if (!current || !output) return UOS_INVALID;
+    *output = nullptr;
+    try {
+        const auto changes = universe::diff_snapshots(base ? base->value.get() : nullptr, *current->value);
+        auto result = std::make_unique<uos_delta>();
+        result->rows.reserve(changes.process_upserts.size() + changes.process_removals.size() + changes.galaxy_upserts.size() + changes.galaxy_removals.size());
+        for (const auto index : changes.process_upserts) result->rows.push_back({0, index, 0, 0, 0});
+        for (const auto& identity : changes.process_removals) result->rows.push_back({1, 0, identity.pid, 0, identity.generation});
+        for (const auto index : changes.galaxy_upserts) result->rows.push_back({2, index, 0, 0, 0});
+        for (const auto& identity : changes.galaxy_removals) result->rows.push_back({3, 0, identity.pid, 0, identity.generation});
+        *output = result.release();
+        return UOS_FRAME;
+    } catch (...) { return UOS_ERROR; }
+}
+
+int32_t uos_delta_info_read(const uos_delta* delta, uos_delta_info* output, uint32_t size) noexcept {
+    if (!delta || !output || size != sizeof(uos_delta_info)) return UOS_INVALID;
+    *output = {UOS_ABI_VERSION, sizeof(uos_delta_info), static_cast<uint32_t>(delta->rows.size()), 0};
+    return UOS_FRAME;
+}
+
+int32_t uos_delta_row_read(const uos_delta* delta, uint32_t index, uos_change_row* output, uint32_t size) noexcept {
+    if (!delta || !output || size != sizeof(uos_change_row) || index >= delta->rows.size()) return UOS_INVALID;
+    *output = delta->rows[index];
+    return UOS_FRAME;
+}
+
+void uos_delta_release(uos_delta* delta) noexcept { delete delta; }
 
 int32_t uos_model_info_read(const uos_process_snapshot* snapshot, uos_model_info* output, uint32_t size) noexcept {
     if (!snapshot || !output || size != sizeof(uos_model_info)) return UOS_INVALID;

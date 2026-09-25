@@ -1,6 +1,8 @@
 mod bridge;
+mod changes;
 mod native;
 mod process;
+mod stream;
 mod universe;
 
 use bridge::{Bridge, Frame};
@@ -10,24 +12,38 @@ use tauri::{ipc::Channel, Manager, State};
 struct CoreState(Result<Bridge, String>);
 
 #[tauri::command]
-fn subscribe_core(
-    state: State<CoreState>,
+async fn subscribe_core(
+    state: State<'_, CoreState>,
     on_frame: Channel<Frame>,
     protocol_version: u32,
 ) -> Result<u32, String> {
-    if protocol_version != 3 {
+    if protocol_version != 4 {
         return Err("Unsupported UI protocol version".into());
     }
     state.0.as_ref().map_err(Clone::clone)?.subscribe(on_frame)
 }
 
 #[tauri::command]
-fn ack_core(state: State<CoreState>, subscription_id: u32, sequence: String) -> Result<(), String> {
+async fn ack_core(
+    state: State<'_, CoreState>,
+    subscription_id: u32,
+    transfer_id: String,
+    chunk_index: usize,
+) -> Result<(), String> {
     state
         .0
         .as_ref()
         .map_err(Clone::clone)?
-        .ack(subscription_id, &sequence)
+        .ack(subscription_id, &transfer_id, chunk_index)
+}
+
+#[tauri::command]
+async fn resync_core(state: State<'_, CoreState>, subscription_id: u32) -> Result<(), String> {
+    state
+        .0
+        .as_ref()
+        .map_err(Clone::clone)?
+        .resync(subscription_id)
 }
 
 #[tauri::command]
@@ -53,6 +69,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
         .invoke_handler(tauri::generate_handler![
             subscribe_core,
             ack_core,
+            resync_core,
             unsubscribe_core,
             set_profile,
             set_process_collection
