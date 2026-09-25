@@ -30,7 +30,7 @@ export function connectCore(): () => void {
     void invoke('ack_core', { subscriptionId: frame.subscriptionId, sequence: frame.sequence })
       .catch((error: unknown) => { if (!disposed) store.fail(String(error)) })
   }
-  void invoke<number>('subscribe_core', { protocolVersion: 1, onFrame: channel })
+  void invoke<number>('subscribe_core', { protocolVersion: 2, onFrame: channel })
     .then(id => {
       subscriptionId = id
       if (disposed) void invoke('unsubscribe_core', { subscriptionId: id }).catch(() => {})
@@ -46,4 +46,8 @@ export function connectCore(): () => void {
 
 export async function setNativeProfile(profile: Profile): Promise<void> {
   await invoke('set_profile', { profile })
+}
+
+export async function setProcessCollection(enabled: boolean): Promise<void> {
+  await invoke('set_process_collection', { enabled })
 }

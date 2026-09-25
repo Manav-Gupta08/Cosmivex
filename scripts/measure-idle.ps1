@@ -63,6 +63,7 @@ try {
     $result = [ordered]@{
         capturedAt = (Get-Date).ToUniversalTime().ToString('o')
         build = 'release-x64'
+        appVersion = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
         profile = 'normal'
         warmupSeconds = $WarmupSeconds
         sampleSeconds = $SampleSeconds

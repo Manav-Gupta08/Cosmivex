@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { coreFrameSchema, type CoreFrame } from '../../shared/protocol/core'
+import { coreFrameSchema, processSnapshotSchema } from '../../shared/protocol/core'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
-
-const fixture: CoreFrame = { subscriptionId: 1, protocolVersion: 1, abiVersion: 1, sequence: '1', uptimeMs: 0, observedAtUnixMs: 1790000000000, intervalMs: 2000, profile: 'normal', enabledCollectors: 0 }
+import { coreFixture as fixture, processFixture } from './fixtures'
 
 describe('native wire contract and latest-state store', () => {
   beforeEach(() => useCoreStore.getState().begin())
@@ -10,9 +9,14 @@ describe('native wire contract and latest-state store', () => {
     expect(coreFrameSchema.parse(fixture)).toEqual(fixture)
   })
   it('rejects incompatible versions, invalid profiles, unsafe numbers and fake collectors', () => {
-    for (const patch of [{ protocolVersion: 2 }, { profile: 'turbo' }, { uptimeMs: NaN }, { enabledCollectors: 1 }, { sequence: '18446744073709551616' }, { sequence: 'invalid' }, { sequence: '' }, { sequence: '-1' }, { profile: 'eco' }, { uptimeMs: Number.MAX_SAFE_INTEGER + 1 }]) {
+    for (const patch of [{ protocolVersion: 1 }, { profile: 'turbo' }, { uptimeMs: NaN }, { enabledCollectors: 1 }, { sequence: '18446744073709551616' }, { sequence: 'invalid' }, { sequence: '' }, { sequence: '-1' }, { profile: 'eco' }, { uptimeMs: Number.MAX_SAFE_INTEGER + 1 }]) {
       expect(coreFrameSchema.safeParse({ ...fixture, ...patch }).success).toBe(false)
     }
+  })
+  it('accepts null process measurements but rejects invalid CPU and duplicate identities', () => {
+    expect(processSnapshotSchema.safeParse({ ...fixture.processes, rows: [processFixture] }).success).toBe(true)
+    expect(processSnapshotSchema.safeParse({ ...fixture.processes, rows: [{ ...processFixture, cpuPercent: 101 }] }).success).toBe(false)
+    expect(processSnapshotSchema.safeParse({ ...fixture.processes, rows: [processFixture, processFixture] }).success).toBe(false)
   })
   it('ignores duplicate and reordered frames without extra updates', () => {
     const store = useCoreStore.getState()

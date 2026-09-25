@@ -38,12 +38,13 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>Last draw calls</dt><dd>{metrics.drawCalls}</dd>
       <dt>CPU submission</dt><dd>{metrics.frames ? `${metrics.submissionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>GPU frame time</dt><dd>Unavailable</dd>
-      <dt>Visible entities</dt><dd>0</dd>
-      <dt>Health payload RX</dt><dd>{status === 'connected' ? `${metrics.bytesPerSecond.toFixed(0)} B/s` : 'Unavailable'}</dd>
-      <dt>Telemetry events</dt><dd>Not collected</dd>
+      <dt>Process instances</dt><dd data-testid="process-instances">{metrics.processInstances}</dd>
+      <dt>Snapshot payload RX</dt><dd>{status === 'connected' ? `${metrics.bytesPerSecond.toFixed(0)} B/s` : 'Unavailable'}</dd>
+      <dt>Collector duration</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.collectionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
+      <dt>Logical processors</dt><dd>{frame?.processes.observedAtUnixMs ? frame.processes.logicalCpus : 'Unavailable'}</dd>
       <dt>Core / frontend CPU</dt><dd>Not measured</dd>
       <dt>Memory</dt><dd>Not measured</dd>
     </dl></div>
-    <div className="panel-section"><h3>Collection permissions</h3><p>Standard user. No collectors enabled. History off.</p></div>
+    <div className="panel-section"><h3>Collection permissions</h3><p>Standard user. {frame?.enabledCollectors ? 'Process metadata only.' : 'Collection off.'} History off.</p></div>
   </aside>
 }

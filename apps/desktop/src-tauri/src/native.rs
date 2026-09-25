@@ -1,5 +1,6 @@
+use crate::process::{self, ProcessSnapshot};
 use serde::{Deserialize, Serialize};
-use std::{ffi::c_void, mem::size_of, ptr::NonNull};
+use std::{ffi::c_void, mem::size_of, ptr::NonNull, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -33,6 +34,7 @@ extern "C" {
         size: u32,
     ) -> i32;
     fn uos_set_profile(engine: *mut c_void, profile: u32) -> i32;
+    fn uos_set_process_collection(engine: *mut c_void, enabled: u32) -> i32;
     fn uos_stop(engine: *mut c_void);
     fn uos_destroy(engine: *mut c_void);
 }
@@ -52,6 +54,7 @@ pub struct Health {
     pub interval_ms: u32,
     pub profile: Profile,
     pub enabled_collectors: u32,
+    pub processes: Arc<ProcessSnapshot>,
 }
 
 impl Engine {
@@ -84,10 +87,13 @@ impl Engine {
                     2 => Profile::Cinematic,
                     _ => return Err("Native core returned an unknown profile".into()),
                 };
+                let Some(processes) = process::read(self.0.as_ptr(), raw.sequence)? else {
+                    return Ok(None);
+                };
                 Ok(Some((
                     raw.sequence,
                     Health {
-                        protocol_version: 1,
+                        protocol_version: 2,
                         abi_version: raw.abi_version,
                         sequence: raw.sequence.to_string(),
                         uptime_ms: raw.uptime_ms,
@@ -95,6 +101,7 @@ impl Engine {
                         interval_ms: raw.interval_ms,
                         profile,
                         enabled_collectors: raw.enabled_collectors,
+                        processes,
                     },
                 )))
             }
@@ -117,6 +124,13 @@ impl Engine {
     pub fn stop(&self) {
         unsafe { uos_stop(self.0.as_ptr()) }
     }
+
+    pub fn set_process_collection(&self, enabled: bool) -> Result<(), String> {
+        match unsafe { uos_set_process_collection(self.0.as_ptr(), u32::from(enabled)) } {
+            1 => Ok(()),
+            code => Err(format!("Native collection toggle failed ({code})")),
+        }
+    }
 }
 
 impl Drop for Engine {
@@ -138,7 +152,7 @@ mod tests {
         assert_eq!(frame.enabled_collectors, 0);
         let json = serde_json::to_value(&frame).unwrap();
         assert_eq!(json["sequence"], "1");
-        assert_eq!(json["protocolVersion"], 1);
+        assert_eq!(json["protocolVersion"], 2);
         engine.set_profile(Profile::Eco).unwrap();
         let (_, next) = engine.wait(sequence, 100).unwrap().unwrap();
         assert_eq!(next.interval_ms, 5000);

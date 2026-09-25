@@ -1,5 +1,6 @@
 mod bridge;
 mod native;
+mod process;
 
 use bridge::{Bridge, Frame};
 use native::Profile;
@@ -13,7 +14,7 @@ fn subscribe_core(
     on_frame: Channel<Frame>,
     protocol_version: u32,
 ) -> Result<u32, String> {
-    if protocol_version != 1 {
+    if protocol_version != 2 {
         return Err("Unsupported UI protocol version".into());
     }
     state.0.as_ref().map_err(Clone::clone)?.subscribe(on_frame)
@@ -44,12 +45,16 @@ fn set_profile(state: State<CoreState>, profile: Profile) -> Result<(), String> 
 
 pub fn run(context: tauri::Context<tauri::Wry>) {
     tauri::Builder::default()
-        .manage(CoreState(Bridge::new()))
+        .manage(CoreState(Bridge::new().and_then(|bridge| {
+            bridge.set_process_collection(true)?;
+            Ok(bridge)
+        })))
         .invoke_handler(tauri::generate_handler![
             subscribe_core,
             ack_core,
             unsubscribe_core,
-            set_profile
+            set_profile,
+            set_process_collection
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -60,4 +65,13 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
         })
         .run(context)
         .expect("Unable to start Universe OS");
+}
+
+#[tauri::command]
+fn set_process_collection(state: State<CoreState>, enabled: bool) -> Result<(), String> {
+    state
+        .0
+        .as_ref()
+        .map_err(Clone::clone)?
+        .set_process_collection(enabled)
 }

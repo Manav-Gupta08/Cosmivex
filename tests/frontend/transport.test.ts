@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { connectCore } from '../../apps/desktop/src/transport'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
+import { coreFixture } from './fixtures'
 
 const mock = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -14,7 +15,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     constructor() { mock.channel = this }
   },
 }))
-const fixture = { subscriptionId: 7, protocolVersion: 1, abiVersion: 1, sequence: '1', uptimeMs: 0, observedAtUnixMs: 1790000000000, intervalMs: 2000, profile: 'normal', enabledCollectors: 0 }
+const fixture = { ...coreFixture, subscriptionId: 7 }
 
 beforeEach(() => {
   vi.useFakeTimers()

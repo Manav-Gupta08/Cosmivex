@@ -5,19 +5,23 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 1 foundation is implemented and verified in the actual Windows application.
-It includes the C++20 engine, Tauri 2 host, versioned acknowledged IPC, React /
-TypeScript / Zustand shell, and a demand-rendered Three.js / R3F reference scene.
+Phase 2 is implemented and verified in the actual Windows application. Real
+Windows processes appear as instanced stars, with PID/name search, smooth focus,
+selection, exact process details and an optional paged process list. CPU and
+working-set measurements come from the C++ collector, not the renderer.
 
-**No OS telemetry collectors are enabled yet.** The empty navigation grid is not
-a process universe or synthetic workload. The native sequence, uptime, and profile
-interval are actual C++ engine state. Process stars start in Phase 2. Network,
-filesystem, SQLite recording, replay, LOD benchmarks, and effects are later phases.
+Process metadata collection is enabled by default and can be switched off in the
+bottom bar. Missing CPU/memory values remain unavailable; an exited selection
+retains its last observation with an explicit status. No synthetic process data
+is supplied to the application. Galaxy grouping and process hierarchy are Phase 3.
+Network, filesystem, SQLite recording, replay, LOD benchmarks, and effects remain
+later phases. The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 1 verification](docs/phase-1.md) for measured results and open limits.
+See [Phase 2 verification](docs/phase-2.md) for current results and open limits;
+[Phase 1 verification](docs/phase-1.md) preserves the foundation baseline.
 
 ## Prerequisites
 
@@ -77,6 +81,10 @@ browser-only state. `verify-desktop.ps1` launches and closes its own release app
 temporarily enables loopback WebView2 debugging for that child only, exercises real
 IPC and rendering, closes it, and verifies reopening. Port 9223 must be available;
 use `-Port 9224` when occupied. No debugging port is enabled in ordinary launches.
+The verifier starts its own bounded CPU/memory workload, compares its observed PID,
+parent PID, CPU and working set with Windows reference measurements, then ends
+that specific test process and verifies disappearance. It does not stop unrelated
+processes. The workload is test-only and exits on its own after two minutes.
 
 Screenshots and measured samples are generated under ignored `artifacts/`.
 The icon sources are generated locally by `scripts/generate-icon.ps1`; generated
@@ -85,23 +93,31 @@ PNG/ICO assets are committed so building does not require regenerating them.
 ## Operation and efficiency
 
 - Drag to orbit, right-drag to pan, scroll to zoom; crosshair resets the camera.
+- Click a process star, or search a name/exact PID and press Enter, to focus and
+  inspect it. The list button opens at most 50 rows at a time with sorting/paging.
 - Diagnostics are optional. They show core state, actual draw counts and received
   health-payload throughput. GPU timing, CPU attribution, and memory readouts are
   explicitly unavailable in-app until those measurements are implemented.
-- Eco: 5 s health cadence, 30 fps draw ceiling, pixel ratio 1, no MSAA.
-- Normal: 2 s health cadence, 60 fps draw ceiling, pixel ratio 1, no MSAA.
-- Cinematic: 2 s health cadence, 60 fps draw ceiling, pixel ratio 2, MSAA.
+- Eco: 2 s wait between process collections, 30 fps draw ceiling, pixel ratio 1,
+  no MSAA. With collection off, health cadence reduces to 5 s.
+- Normal: 1 s wait between collections, 60 fps draw ceiling, pixel ratio 1, no MSAA.
+- Cinematic: 1 s wait between collections, 60 fps draw ceiling, pixel ratio 2, MSAA.
+- With collection off, Normal/Cinematic publish health only every 2 s.
 - All modes stop drawing at rest and suspend the render loop while hidden. An idle
   scene correctly reports no new frames. Diagnostic refresh runs only while open.
 - Quality switches into/out of Cinematic recreate the canvas and currently reset
-  the camera. No effects or telemetry-frequency claims beyond core health in v0.1.
-- A fixed 48-byte C ABI health record and one latest-state mailbox feed one
-  acknowledged channel frame. No event backlog, history writes, or OS scans.
+  the camera. CPU/memory visual scaling and effects remain a later phase.
+- One immutable latest process snapshot and one acknowledged channel frame prevent
+  event backlog. Metric-only updates do not rebuild GPU matrices or invalidate the
+  viewport. Native collection happens outside the shared-state lock.
+- CPU uses 0-100% of total logical processor capacity; working set is not private
+  memory. Sampling may miss short-lived processes. At most 4,096 processes are
+  collected; any truncation is explicit. No history writes.
 
 ## Privacy and Git workflow
 
 No packet payload capture, file-content reading, process control, filesystem
-mutation, elevated tracing, AI APIs, or history database in Phase 1. WebView2 may
+mutation, elevated tracing, AI APIs, or history database. WebView2 may
 maintain its standard application profile/cache; that is separate from telemetry
 history. All fonts and assets are packaged locally. Diagnostic test fixtures are
 test-only and never included as production system observations.

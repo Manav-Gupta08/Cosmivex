@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-core-bridge"
 description = "Read native core health and configure its resource profile."
-commands.allow = ["subscribe_core", "ack_core", "unsubscribe_core", "set_profile"]
+commands.allow = ["subscribe_core", "ack_core", "unsubscribe_core", "set_profile", "set_process_collection"]

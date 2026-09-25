@@ -3,6 +3,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { CameraControls } from '@react-three/drei'
 import type { Profile } from '../../../shared/protocol/core'
 import { renderMetrics } from './metrics'
+import { ProcessStars } from './ProcessStars'
+import { processPosition } from './layout'
+import { useCoreStore } from '../src/state/core'
 
 const initialCamera: [number, number, number] = [14, 12, 18]
 
@@ -23,10 +26,17 @@ function ReferenceGeometry() {
 
 function Navigation({ reset }: { reset: number }) {
   const controls = useRef<CameraControls>(null)
+  const selectedId = useCoreStore(state => state.selected?.id)
+  const focusRevision = useCoreStore(state => state.focusRevision)
   useEffect(() => {
     if (reset > 0) void controls.current?.setLookAt(...initialCamera, 0, 0, 0, !matchMedia('(prefers-reduced-motion: reduce)').matches)
   }, [reset])
-  return <CameraControls ref={controls} makeDefault minDistance={5} maxDistance={65} smoothTime={0.2} maxPolarAngle={Math.PI * 0.88} />
+  useEffect(() => {
+    if (!selectedId) return
+    const [horizontal, vertical, depth] = processPosition(selectedId)
+    void controls.current?.setLookAt(horizontal + 4, vertical + 2, depth + 5, horizontal, vertical, depth, !matchMedia('(prefers-reduced-motion: reduce)').matches)
+  }, [selectedId, focusRevision])
+  return <CameraControls ref={controls} makeDefault minDistance={2} maxDistance={65} smoothTime={0.2} maxPolarAngle={Math.PI * 0.88} />
 }
 
 function RenderBudget({ profile, onFailure }: { profile: Profile; onFailure: () => void }) {
@@ -72,6 +82,7 @@ export const UniverseScene = memo(function UniverseScene({ profile, reset }: { p
         <color attach="background" args={['#090c0e']} />
         <fog attach="fog" args={['#090c0e', 22, 72]} />
         <ReferenceGeometry />
+        <ProcessStars />
         <Navigation reset={reset} />
         <RenderBudget profile={profile} onFailure={() => setLost(true)} />
       </Canvas>}

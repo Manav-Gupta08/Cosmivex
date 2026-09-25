@@ -38,6 +38,29 @@ int main() {
         require(uos_set_profile(engine.get(), UOS_ECO) == UOS_FRAME, "eco selected");
         require(uos_wait(engine.get(), frame.sequence, 0, &frame, sizeof(frame)) == UOS_FRAME, "eco confirmed");
         require(frame.interval_ms == 5000 && frame.profile == UOS_ECO, "native eco interval");
+        require(uos_set_process_collection(engine.get(), 2) == UOS_INVALID, "reject invalid collector toggle");
+        require(uos_set_process_collection(engine.get(), 1) == UOS_FRAME, "enable processes");
+        uos_process_snapshot* held = nullptr;
+        uos_process_info info{};
+        for (int attempt = 0; attempt < 10 && !held; ++attempt) {
+            require(uos_wait(engine.get(), frame.sequence, 3000, &frame, sizeof(frame)) == UOS_FRAME, "process health update");
+            uos_process_snapshot* candidate = nullptr;
+            if (uos_acquire_processes(engine.get(), frame.sequence, &candidate) != UOS_FRAME) continue;
+            require(uos_process_info_read(candidate, &info, sizeof(info)) == UOS_FRAME, "snapshot info");
+            if (info.count > 0) held = candidate;
+            else uos_release_processes(candidate);
+        }
+        require(held != nullptr && info.error == 0, "real process snapshot through C ABI");
+        require(frame.interval_ms == 2000 && frame.enabled_collectors == 1, "eco process interval");
+        uos_process_row row{};
+        require(uos_process_row_read(held, info.count, &row, sizeof(row)) == UOS_INVALID, "bounds check process rows");
+        require(uos_process_row_read(held, 0, &row, sizeof(row)) == UOS_FRAME, "read native process row");
+        require(row.name && row.name_length > 0, "borrowed name lifetime");
+        require(uos_set_process_collection(engine.get(), 0) == UOS_FRAME, "disable processes");
+        require(uos_process_row_read(held, 0, &row, sizeof(row)) == UOS_FRAME, "retained snapshot survives replacement");
+        uos_release_processes(held);
+        require(uos_wait(engine.get(), frame.sequence, 100, &frame, sizeof(frame)) == UOS_FRAME, "disabled health state");
+        require(frame.enabled_collectors == 0, "disabled collector confirmed");
         auto waiter = std::async(std::launch::async, [&] {
             uos_health next{};
             return uos_wait(engine.get(), frame.sequence, 30000, &next, sizeof(next));

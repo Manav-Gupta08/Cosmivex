@@ -7,9 +7,25 @@ $listener = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::L
 try { $listener.Start() } finally { $listener.Stop() }
 $previousArgs = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $previousEndpoint = $env:UOS_TEST_ENDPOINT
+$previousTestPid = $env:UOS_TEST_PID
+$previousParentPid = $env:UOS_TEST_PARENT_PID
+$previousCpu = $env:UOS_TEST_CPU
+$previousMemory = $env:UOS_TEST_MEMORY_MIB
+$workload = $null
 $application = $null
 Push-Location $root
 try {
+    $workload = Start-Process -FilePath (Get-Command node).Source -ArgumentList (Join-Path $root 'tests/process-workload.mjs') -WindowStyle Hidden -PassThru
+    $env:UOS_TEST_PID = [string]$workload.Id
+    $env:UOS_TEST_PARENT_PID = [string]$PID
+    $workload.Refresh()
+    $startedCpu = $workload.TotalProcessorTime.TotalSeconds
+    $referenceClock = [System.Diagnostics.Stopwatch]::StartNew()
+    Get-Counter '\System\System Up Time' -SampleInterval 1 -MaxSamples 3 | Out-Null
+    $workload.Refresh()
+    $referenceCpu = ($workload.TotalProcessorTime.TotalSeconds - $startedCpu) / $referenceClock.Elapsed.TotalSeconds / [Environment]::ProcessorCount * 100
+    $env:UOS_TEST_CPU = $referenceCpu.ToString([Globalization.CultureInfo]::InvariantCulture)
+    $env:UOS_TEST_MEMORY_MIB = ($workload.WorkingSet64 / 1MB).ToString([Globalization.CultureInfo]::InvariantCulture)
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$Port --remote-debugging-address=127.0.0.1"
     $env:UOS_TEST_ENDPOINT = "http://127.0.0.1:$Port"
     $application = Start-Process -FilePath $executable -PassThru
@@ -27,6 +43,14 @@ try {
 } finally {
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArgs
     $env:UOS_TEST_ENDPOINT = $previousEndpoint
+    $env:UOS_TEST_PID = $previousTestPid
+    $env:UOS_TEST_PARENT_PID = $previousParentPid
+    $env:UOS_TEST_CPU = $previousCpu
+    $env:UOS_TEST_MEMORY_MIB = $previousMemory
+    if ($null -ne $workload) {
+        if (-not $workload.HasExited) { $workload.Kill(); $workload.WaitForExit() }
+        $workload.Dispose()
+    }
     if ($null -ne $application) {
         $application.Refresh()
         if (-not $application.HasExited) {

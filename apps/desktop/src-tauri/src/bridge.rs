@@ -153,6 +153,10 @@ impl Bridge {
         self.engine.set_profile(profile)
     }
 
+    pub fn set_process_collection(&self, enabled: bool) -> Result<(), String> {
+        self.engine.set_process_collection(enabled)
+    }
+
     pub fn shutdown(&self) {
         self.stopping.store(true, Ordering::Release);
         self.engine.stop();
