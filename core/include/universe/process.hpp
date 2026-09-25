@@ -15,12 +15,14 @@ struct ProcessObservation {
     uint32_t parent_pid = 0;
     uint32_t thread_count = 0;
     std::string name;
+    std::optional<std::string> executable_path;
     std::optional<uint64_t> creation_filetime;
     std::optional<uint64_t> cpu_ticks;
     std::optional<uint64_t> working_set_bytes;
     uint64_t measured_at_ns = 0;
     uint32_t timing_error = 0;
     uint32_t memory_error = 0;
+    uint32_t image_error = 0;
 };
 
 struct ProcessCollection {

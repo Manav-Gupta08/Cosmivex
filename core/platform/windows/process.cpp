@@ -5,6 +5,7 @@
 #include <psapi.h>
 #include "universe/process.hpp"
 #include <chrono>
+#include <array>
 #include <utility>
 
 namespace universe {
@@ -35,6 +36,11 @@ std::string utf8(const wchar_t* value) {
 }
 
 class WindowsProcessCollector final : public IProcessCollector {
+    struct CachedImage {
+        uint64_t created;
+        std::string path;
+    };
+    std::unordered_map<uint32_t, CachedImage> images_;
 public:
     ProcessCollection collect(std::stop_token stop) override {
         using Clock = std::chrono::steady_clock;
@@ -55,6 +61,8 @@ public:
             return result;
         }
         result.processes.reserve(512);
+        std::unordered_map<uint32_t, CachedImage> next_images;
+        next_images.reserve(images_.size());
         do {
             if (stop.stop_requested()) { result.error = ERROR_OPERATION_ABORTED; break; }
             if (result.processes.size() == process_limit) { result.truncated = true; break; }
@@ -65,7 +73,7 @@ public:
             process.name = utf8(entry.szExeFile);
             const Handle handle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process.pid));
             if (!handle.valid()) {
-                process.timing_error = process.memory_error = GetLastError();
+                process.image_error = process.timing_error = process.memory_error = GetLastError();
             } else {
                 FILETIME creation{}, exit{}, kernel{}, user{};
                 if (GetProcessTimes(handle.get(), &creation, &exit, &kernel, &user)) {
@@ -73,6 +81,21 @@ public:
                     process.cpu_ticks = ticks(kernel) + ticks(user);
                 } else {
                     process.timing_error = GetLastError();
+                }
+                const auto cached = images_.find(process.pid);
+                if (process.creation_filetime && cached != images_.end() && cached->second.created == *process.creation_filetime) {
+                    process.executable_path = cached->second.path;
+                } else {
+                    std::array<wchar_t, 32768> path{};
+                    DWORD length = static_cast<DWORD>(path.size());
+                    if (QueryFullProcessImageNameW(handle.get(), 0, path.data(), &length)) {
+                        auto image = utf8(path.data());
+                        if (image.size() <= 16384 && !image.empty()) process.executable_path = std::move(image);
+                        else process.image_error = ERROR_BUFFER_OVERFLOW;
+                    } else { process.image_error = GetLastError(); }
+                }
+                if (process.creation_filetime && process.executable_path) {
+                    next_images.emplace(process.pid, CachedImage{*process.creation_filetime, *process.executable_path});
                 }
                 PROCESS_MEMORY_COUNTERS memory{};
                 memory.cb = sizeof(memory);
@@ -96,6 +119,7 @@ public:
             const auto error = GetLastError();
             if (error != ERROR_NO_MORE_FILES) result.error = error;
         }
+        images_ = std::move(next_images);
         result.duration_ms = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
         return result;
     }

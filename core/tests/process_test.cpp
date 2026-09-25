@@ -1,4 +1,5 @@
 #include "universe/process.hpp"
+#include "universe/model.hpp"
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -101,6 +102,7 @@ int main(int argc, char* argv[]) {
         check(current->name == "universe_process_tests.exe", "real executable name");
         check(current->creation_filetime.has_value() && current->cpu_ticks.has_value(), "own process timing available");
         check(current->working_set_bytes.value_or(0) > 0, "own process memory available");
+        check(current->executable_path.has_value() && current->image_error == 0, "own executable identity available");
         FILETIME creation{}, exit{}, kernel{}, user{};
         check(GetProcessTimes(GetCurrentProcess(), &creation, &exit, &kernel, &user) != 0, "OS timing reference");
         const uint64_t expected = (static_cast<uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime;
@@ -113,6 +115,18 @@ int main(int argc, char* argv[]) {
             });
             check(found != with_child.processes.end(), "new child is observed");
             check(found->parent_pid == GetCurrentProcessId(), "real child parent PID");
+            check(found->executable_path == current->executable_path, "child shares actual executable path");
+            universe::ProcessTracker live_tracker;
+            const auto live_snapshot = live_tracker.normalize(with_child);
+            const auto live_model = universe::build_universe(live_snapshot);
+            const auto child_row = std::find_if(live_snapshot.processes.begin(), live_snapshot.processes.end(), [&child](const auto& row) {
+                return row.observation.pid == child.pid();
+            });
+            const auto child_index = static_cast<size_t>(child_row - live_snapshot.processes.begin());
+            const auto& relation = live_model.relationships[child_index];
+            check(relation.status == universe::ParentStatus::verified, "real parent relationship validated");
+            check(live_snapshot.processes[static_cast<size_t>(relation.parent_index)].observation.pid == GetCurrentProcessId(), "resolved parent is actual test process");
+            check(live_model.galaxies[relation.galaxy_index].process_count >= 2, "real same-image child belongs to parent galaxy");
             child.finish();
             const auto after_exit = collector->collect();
             check(std::none_of(after_exit.processes.begin(), after_exit.processes.end(), [&child](const auto& process) {
