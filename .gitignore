@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+target/
+artifacts/
+*.user
+*.log
+.env
+.env.*
+!.env.example
+apps/desktop/src-tauri/gen/

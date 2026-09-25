@@ -1,0 +1,1 @@
+export const renderMetrics = { frames: 0, drawCalls: 0, triangles: 0, submissionMs: 0 }

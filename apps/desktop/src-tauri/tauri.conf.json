@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Universe OS",
+  "version": "0.1.0",
+  "identifier": "com.manavgupta.universeos",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist",
+    "additionalWatchFolders": ["../../../core"]
+  },
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "Universe OS",
+      "width": 1360,
+      "height": 860,
+      "minWidth": 400,
+      "minHeight": 600,
+      "center": true,
+      "theme": "Dark",
+      "backgroundColor": "#090c0e"
+    }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'",
+      "capabilities": [{
+        "identifier": "main-window",
+        "windows": ["main"],
+        "permissions": ["core:default", "allow-core-bridge"]
+      }]
+    }
+  },
+  "bundle": { "active": false, "icon": ["icons/icon.ico"] }
+}
