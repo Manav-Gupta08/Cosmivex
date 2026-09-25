@@ -1,4 +1,5 @@
 #pragma once
+#include "universe/resources.hpp"
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -46,6 +47,7 @@ struct ProcessRow {
     ProcessObservation observation;
     uint64_t generation = 0;
     std::optional<double> cpu_percent;
+    ResourceVisual resources;
 };
 
 struct UniverseModel;
@@ -72,6 +74,7 @@ private:
         uint64_t measured_at_ns;
         uint64_t generation;
         std::string name;
+        ResourceVisual resources;
     };
     std::unordered_map<uint32_t, Previous> previous_;
     uint64_t next_generation_ = 0;

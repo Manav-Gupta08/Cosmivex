@@ -37,9 +37,10 @@ ProcessSnapshot ProcessTracker::normalize(ProcessCollection collection) {
             const double ticks = static_cast<double>(*observation.cpu_ticks - *found->second.ticks);
             cpu = std::clamp(ticks * 10000.0 / elapsed / collection.logical_cpus, 0.0, 100.0);
         }
+        const auto resources = map_resources(cpu, observation.working_set_bytes, same ? &found->second.resources : nullptr);
         next.emplace(observation.pid, Previous{observation.creation_filetime, observation.cpu_ticks,
-            observation.measured_at_ns, generation, observation.name});
-        snapshot.processes.push_back(ProcessRow{std::move(observation), generation, cpu});
+            observation.measured_at_ns, generation, observation.name, resources});
+        snapshot.processes.push_back(ProcessRow{std::move(observation), generation, cpu, resources});
     }
     previous_ = std::move(next);
     std::sort(snapshot.processes.begin(), snapshot.processes.end(), [](const auto& left, const auto& right) {

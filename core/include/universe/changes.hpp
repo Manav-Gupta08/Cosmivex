@@ -4,8 +4,8 @@
 
 namespace universe {
 inline constexpr uint32_t recent_event_limit = 256;
-enum class EventKind : uint32_t { baseline = 0, created = 1, terminated = 2, updated = 3, gap = 4, paused = 5 };
-enum class EventReason : uint32_t { observation = 0, identity = 1, metadata = 2, incomplete = 3, configuration = 4 };
+enum class EventKind : uint32_t { baseline = 0, created = 1, terminated = 2, updated = 3, gap = 4, paused = 5, resource_spike = 6 };
+enum class EventReason : uint32_t { observation = 0, identity = 1, metadata = 2, incomplete = 3, configuration = 4, cpu_sustained = 5 };
 
 struct ProcessEvent {
     uint64_t sequence = 0;
@@ -17,6 +17,8 @@ struct ProcessEvent {
     EventKind kind = EventKind::baseline;
     EventReason reason = EventReason::observation;
     std::string name;
+    std::optional<double> resource_value;
+    std::optional<double> resource_threshold;
 };
 
 struct EventWindow {
@@ -38,6 +40,7 @@ private:
         uint32_t parent_pid;
         uint32_t threads;
         std::string name;
+        CpuSpikeDetector spikes;
     };
     std::unordered_map<uint32_t, Previous> previous_;
     std::deque<ProcessEvent> events_;
@@ -46,7 +49,7 @@ private:
     uint64_t evicted_ = 0;
     bool baseline_ = false;
     bool interrupted_ = false;
-    void append(EventKind kind, EventReason reason, uint64_t time, uint64_t monotonic, uint32_t pid = 0, uint64_t generation = 0, const std::string& name = {});
+    void append(EventKind kind, EventReason reason, uint64_t time, uint64_t monotonic, uint32_t pid = 0, uint64_t generation = 0, const std::string& name = {}, std::optional<double> value = {}, std::optional<double> threshold = {});
     std::shared_ptr<const EventWindow> window() const;
 };
 

@@ -2,9 +2,9 @@
 #include "universe/model.hpp"
 
 namespace universe {
-void EventJournal::append(EventKind kind, EventReason reason, uint64_t time, uint64_t monotonic, uint32_t pid, uint64_t generation, const std::string& name) {
+void EventJournal::append(EventKind kind, EventReason reason, uint64_t time, uint64_t monotonic, uint32_t pid, uint64_t generation, const std::string& name, std::optional<double> value, std::optional<double> threshold) {
     if (events_.size() == recent_event_limit) { events_.pop_front(); ++evicted_; }
-    events_.push_back({++sequence_, time, previous_time_, monotonic, generation, pid, kind, reason, name});
+    events_.push_back({++sequence_, time, previous_time_, monotonic, generation, pid, kind, reason, name, value, threshold});
 }
 
 std::shared_ptr<const EventWindow> EventJournal::window() const {
@@ -54,7 +54,11 @@ std::shared_ptr<const EventWindow> EventJournal::observe(const ProcessSnapshot& 
                 append(EventKind::updated, EventReason::metadata, time, monotonic, process.pid, row.generation, process.name);
             }
         }
-        next.emplace(process.pid, Previous{row.generation, process.creation_filetime, process.pid, process.parent_pid, process.thread_count, process.name});
+        auto spikes = found != previous_.end() && found->second.generation == row.generation ? found->second.spikes : CpuSpikeDetector{};
+        if (spikes.observe(row.cpu_percent, monotonic) && baseline_) {
+            append(EventKind::resource_spike, EventReason::cpu_sustained, time, monotonic, process.pid, row.generation, process.name, row.cpu_percent, spike_enter_cpu);
+        }
+        next.emplace(process.pid, Previous{row.generation, process.creation_filetime, process.pid, process.parent_pid, process.thread_count, process.name, spikes});
     }
     if (baseline_) {
         for (const auto& [pid, process] : previous_) {
@@ -89,6 +93,7 @@ bool same_process(const ProcessSnapshot& base, size_t before_index, const Proces
     if (left.pid != right.pid || left.parent_pid != right.parent_pid || left.thread_count != right.thread_count
         || left.name != right.name || left.creation_filetime != right.creation_filetime
         || left.working_set_bytes != right.working_set_bytes || before.cpu_percent != after.cpu_percent
+        || before.resources != after.resources
         || left.timing_error != right.timing_error || left.memory_error != right.memory_error
         || parent_generation(base, before_index) != parent_generation(current, index)
         || group_generation(base, before_index) != group_generation(current, index)) return false;
