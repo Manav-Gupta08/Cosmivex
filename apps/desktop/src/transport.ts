@@ -57,7 +57,7 @@ export function connectCore(): () => void {
   }
   subscriptionQueue = subscriptionQueue.then(async () => {
       if (disposed) return
-      const id = await invoke<number>('subscribe_core', { protocolVersion: 5, onFrame: channel })
+      const id = await invoke<number>('subscribe_core', { protocolVersion: 6, onFrame: channel })
       subscriptionId = id
       if (disposed) await invoke('unsubscribe_core', { subscriptionId: id })
     })
@@ -82,4 +82,8 @@ export async function setProcessCollection(enabled: boolean): Promise<void> {
 export async function resyncCore(): Promise<void> {
   const id = useCoreStore.getState().frame?.subscriptionId
   if (id !== undefined) await invoke('resync_core', { subscriptionId: id })
+}
+
+export async function setNetworkCollection(enabled: boolean): Promise<void> {
+  await invoke('set_network_collection', { enabled })
 }

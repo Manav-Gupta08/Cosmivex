@@ -95,6 +95,23 @@ int main() {
         uos_release_processes(held);
         require(uos_wait(engine.get(), frame.sequence, 100, &frame, sizeof(frame)) == UOS_FRAME, "disabled health state");
         require(frame.enabled_collectors == 0, "disabled collector confirmed");
+        require(uos_set_network_collection(engine.get(), 2) == UOS_INVALID, "invalid network toggle");
+        require(uos_set_network_collection(engine.get(), 1) == UOS_FRAME, "independent network enable");
+        bool network_seen = false;
+        for (int attempt = 0; attempt < 10 && !network_seen; ++attempt) {
+            require(uos_wait(engine.get(), frame.sequence, 3000, &frame, sizeof(frame)) == UOS_FRAME, "network health update");
+            uos_process_snapshot* current = nullptr;
+            if (uos_acquire_processes(engine.get(), frame.sequence, &current) != UOS_FRAME) continue;
+            uos_network_info network_info{};
+            require(uos_network_info_read(current, &network_info, sizeof(network_info)) == UOS_FRAME, "network header ABI");
+            network_seen = network_info.enabled == 1 && network_info.observed_at_unix_ms > 0;
+            uos_connection_row connection{};
+            require(uos_connection_row_read(current, network_info.connection_count, &connection, sizeof(connection)) == UOS_INVALID, "network row bounds");
+            uos_release_processes(current);
+        }
+        require(network_seen && frame.enabled_collectors == 0, "network works while process collection is off");
+        require(uos_set_network_collection(engine.get(), 0) == UOS_FRAME, "network disable");
+        require(uos_wait(engine.get(), frame.sequence, 100, &frame, sizeof(frame)) == UOS_FRAME, "network disabled acknowledgement");
         auto waiter = std::async(std::launch::async, [&] {
             uos_health next{};
             return uos_wait(engine.get(), frame.sequence, 30000, &next, sizeof(next));

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry, Color, DoubleSide, InstancedMesh, Object3D } from 'three'
 import { useCoreStore } from '../src/state/core'
@@ -6,6 +6,7 @@ import { galaxyColor } from './layout'
 import { renderMetrics } from './metrics'
 
 export function GalaxySystems() {
+  useEffect(() => () => { renderMetrics.galaxyInstances = 0 }, [])
   const layout = useCoreStore(state => state.layout)
   const ids = useCoreStore(state => state.processIds)
   const selectedId = useCoreStore(state => state.selectedGalaxy?.id)
@@ -46,9 +47,10 @@ export function GalaxySystems() {
 }
 
 export function ParentLinks() {
+  useEffect(() => () => { renderMetrics.parentLinks = 0 }, [])
   const layout = useCoreStore(state => state.layout)
   const ids = useCoreStore(state => state.processIds)
-  const mode = useCoreStore(state => state.viewMode)
+  const mode = useCoreStore(state => state.viewMode === 'hierarchy' ? 'hierarchy' : 'universe')
   const selectedId = useCoreStore(state => state.selected?.id)
   const selectedGalaxyId = useCoreStore(state => state.selectedGalaxy?.id)
   const geometry = useRef<BufferGeometry>(null)

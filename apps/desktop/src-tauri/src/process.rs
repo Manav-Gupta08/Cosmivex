@@ -1,4 +1,5 @@
 use crate::changes::{self, Events};
+use crate::network::{self, NetworkSnapshot};
 use crate::universe::{self, Galaxy};
 use serde::Serialize;
 use std::{ffi::c_void, mem::size_of, ptr::NonNull, sync::Arc};
@@ -98,6 +99,8 @@ pub struct ProcessSnapshot {
     pub native: Arc<SnapshotHandle>,
     #[serde(skip)]
     pub events: Events,
+    #[serde(skip)]
+    pub network: NetworkSnapshot,
     pub observed_at_unix_ms: u64,
     pub logical_cpus: u32,
     pub error: u32,
@@ -197,9 +200,11 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
     }
     let (galaxies, model_build_ms) = universe::read(handle.0.as_ptr(), &mut rows)?;
     let events = changes::events(handle.0.as_ptr())?;
+    let network = network::read(handle.0.as_ptr())?;
     Ok(Some(Arc::new(ProcessSnapshot {
         native: Arc::new(handle),
         events,
+        network,
         observed_at_unix_ms: info.observed_at_unix_ms,
         logical_cpus: info.logical_cpus,
         error: info.error,

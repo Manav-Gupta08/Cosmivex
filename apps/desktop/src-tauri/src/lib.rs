@@ -1,6 +1,7 @@
 mod bridge;
 mod changes;
 mod native;
+mod network;
 mod process;
 mod stream;
 mod universe;
@@ -17,7 +18,7 @@ async fn subscribe_core(
     on_frame: Channel<Frame>,
     protocol_version: u32,
 ) -> Result<u32, String> {
-    if protocol_version != 5 {
+    if protocol_version != 6 {
         return Err("Unsupported UI protocol version".into());
     }
     state.0.as_ref().map_err(Clone::clone)?.subscribe(on_frame)
@@ -64,6 +65,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
     tauri::Builder::default()
         .manage(CoreState(Bridge::new().and_then(|bridge| {
             bridge.set_process_collection(true)?;
+            bridge.set_network_collection(true)?;
             Ok(bridge)
         })))
         .invoke_handler(tauri::generate_handler![
@@ -72,7 +74,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             resync_core,
             unsubscribe_core,
             set_profile,
-            set_process_collection
+            set_process_collection,
+            set_network_collection
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -92,4 +95,13 @@ fn set_process_collection(state: State<CoreState>, enabled: bool) -> Result<(), 
         .as_ref()
         .map_err(Clone::clone)?
         .set_process_collection(enabled)
+}
+
+#[tauri::command]
+fn set_network_collection(state: State<CoreState>, enabled: bool) -> Result<(), String> {
+    state
+        .0
+        .as_ref()
+        .map_err(Clone::clone)?
+        .set_network_collection(enabled)
 }

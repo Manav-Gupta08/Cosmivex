@@ -52,6 +52,7 @@ struct ProcessRow {
 
 struct UniverseModel;
 struct EventWindow;
+struct NetworkSnapshot;
 struct ProcessSnapshot {
     std::vector<ProcessRow> processes;
     uint64_t observed_at_unix_ms = 0;
@@ -61,6 +62,7 @@ struct ProcessSnapshot {
     double duration_ms = 0;
     std::shared_ptr<const UniverseModel> universe;
     std::shared_ptr<const EventWindow> events;
+    std::shared_ptr<const NetworkSnapshot> network;
 };
 
 class ProcessTracker {

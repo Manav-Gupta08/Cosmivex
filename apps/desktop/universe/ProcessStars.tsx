@@ -13,7 +13,7 @@ export function ProcessStars() {
   const selectedId = useCoreStore(state => state.selected?.id)
   const selectedGalaxyId = useCoreStore(state => state.selectedGalaxy?.id)
   const layout = useCoreStore(state => state.layout)
-  const viewMode = useCoreStore(state => state.viewMode)
+  const viewMode = useCoreStore(state => state.viewMode === 'hierarchy' ? 'hierarchy' : 'universe')
   const resources = useCoreStore(state => state.resourceVisuals ? state.resourceLevels : null)
   const enabled = useCoreStore(state => state.resourceVisuals)
   const filled = useRef<InstancedMesh>(null)
@@ -22,7 +22,7 @@ export function ProcessStars() {
   const cache = useRef<{ positions: unknown; batches: CachedStar[][] }>({ positions: null, batches: [[], []] })
   const [geometry] = useState(() => new SphereGeometry(0.19, 8, 6))
   const invalidate = useThree(state => state.invalidate)
-  useEffect(() => () => geometry.dispose(), [geometry])
+  useEffect(() => () => { geometry.dispose(); renderMetrics.processInstances = 0; renderMetrics.unknownMemoryInstances = 0 }, [geometry])
   useLayoutEffect(() => {
     if (!filled.current || !unknown.current) return
     const transform = new Object3D()

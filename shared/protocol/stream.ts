@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { coreFrameSchema, galaxyId, processId, processSnapshotSchema, unsigned64, type CoreFrame } from './core'
+import { coreFrameSchema, galaxyId, processId, processSnapshotSchema, networkSnapshotSchema, unsigned64, type CoreFrame } from './core'
 
 export const CHUNK_BYTES = 256 * 1024
 export const TRANSFER_BYTES = 16 * 1024 * 1024
@@ -20,6 +20,7 @@ export type ProcessEvent = z.infer<typeof eventSchema>
 export const packetSchema = z.strictObject({
   ...coreFrameSchema.shape,
   kind: z.enum(['snapshot', 'delta']), baseSequence: positiveSequence.nullable(),
+  network: networkSnapshotSchema.nullable(),
   processes: z.strictObject({ ...processSnapshotSchema.shape, removed: z.array(processId).max(4096), removedGalaxies: z.array(galaxyId).max(4096) }),
   events: z.strictObject({ throughSequence: unsigned64, evictedCount: unsigned64, gapCount: unsigned64, rows: z.array(eventSchema).max(256) }),
 }).refine(packet => (packet.kind === 'snapshot') === (packet.baseSequence === null)
@@ -29,10 +30,10 @@ export const packetSchema = z.strictObject({
 export type CorePacket = z.infer<typeof packetSchema>
 
 export const wireSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('chunk'), protocolVersion: z.literal(5), subscriptionId: z.number().int().positive().max(0xffffffff),
+  z.strictObject({ kind: z.literal('chunk'), protocolVersion: z.literal(6), subscriptionId: z.number().int().positive().max(0xffffffff),
     transferId: positiveSequence, chunkIndex: z.number().int().min(0).max(127), chunkCount: z.number().int().min(1).max(128),
     totalBytes: z.number().int().min(1).max(TRANSFER_BYTES), payload: z.string().min(1).max(CHUNK_BYTES) }),
-  z.strictObject({ kind: z.literal('error'), protocolVersion: z.literal(5), subscriptionId: z.number().int().positive().max(0xffffffff), message: z.string().max(1024) }),
+  z.strictObject({ kind: z.literal('error'), protocolVersion: z.literal(6), subscriptionId: z.number().int().positive().max(0xffffffff), message: z.string().max(1024) }),
 ])
 export type WireChunk = Extract<z.infer<typeof wireSchema>, { kind: 'chunk' }>
 
@@ -75,6 +76,7 @@ const stateSchema = coreFrameSchema.strip()
 export function applyPacket(base: CoreFrame | null, packet: CorePacket): CoreFrame {
   if (packet.kind === 'delta' && (!base || base.subscriptionId !== packet.subscriptionId || base.sequence !== packet.baseSequence)) throw new Error('Delta base mismatch')
   if (packet.kind === 'snapshot' && (packet.processes.removed.length || packet.processes.removedGalaxies.length)) throw new Error('Snapshot contains removals')
+  if (packet.kind === 'snapshot' && packet.network === null) throw new Error('Snapshot is missing network state')
   const processes = new Map((packet.kind === 'delta' ? base!.processes.rows : []).map(row => [row.id, row]))
   const galaxies = new Map((packet.kind === 'delta' ? base!.processes.galaxies : []).map(group => [group.id, group]))
   const checkUnique = (ids: string[]) => { if (new Set(ids).size !== ids.length) throw new Error('Duplicate change identity') }
@@ -87,8 +89,10 @@ export function applyPacket(base: CoreFrame | null, packet: CorePacket): CoreFra
   const { removed, removedGalaxies, ...metadata } = packet.processes
   void removed
   void removedGalaxies
-  return stateSchema.parse({ ...packet, processes: { ...metadata,
+  const frame = stateSchema.parse({ ...packet, network: packet.network ?? base?.network, processes: { ...metadata,
     rows: [...processes.values()].sort((left, right) => left.pid - right.pid),
     galaxies: [...galaxies.values()].sort((left, right) => left.id.localeCompare(right.id)),
   } })
+  if (packet.network === null && base) frame.network = base.network
+  return frame
 }

@@ -35,6 +35,7 @@ extern "C" {
     ) -> i32;
     fn uos_set_profile(engine: *mut c_void, profile: u32) -> i32;
     fn uos_set_process_collection(engine: *mut c_void, enabled: u32) -> i32;
+    fn uos_set_network_collection(engine: *mut c_void, enabled: u32) -> i32;
     fn uos_stop(engine: *mut c_void);
     fn uos_destroy(engine: *mut c_void);
 }
@@ -93,7 +94,7 @@ impl Engine {
                 Ok(Some((
                     raw.sequence,
                     Health {
-                        protocol_version: 5,
+                        protocol_version: 6,
                         abi_version: raw.abi_version,
                         sequence: raw.sequence.to_string(),
                         uptime_ms: raw.uptime_ms,
@@ -131,6 +132,13 @@ impl Engine {
             code => Err(format!("Native collection toggle failed ({code})")),
         }
     }
+
+    pub fn set_network_collection(&self, enabled: bool) -> Result<(), String> {
+        match unsafe { uos_set_network_collection(self.0.as_ptr(), u32::from(enabled)) } {
+            1 => Ok(()),
+            code => Err(format!("Native network toggle failed ({code})")),
+        }
+    }
 }
 
 impl Drop for Engine {
@@ -152,7 +160,7 @@ mod tests {
         assert_eq!(frame.enabled_collectors, 0);
         let json = serde_json::to_value(&frame).unwrap();
         assert_eq!(json["sequence"], "1");
-        assert_eq!(json["protocolVersion"], 5);
+        assert_eq!(json["protocolVersion"], 6);
         engine.set_profile(Profile::Eco).unwrap();
         let (_, next) = engine.wait(sequence, 100).unwrap().unwrap();
         assert_eq!(next.interval_ms, 5000);

@@ -16,5 +16,7 @@ fn main() {
         .build();
     println!("cargo:rustc-link-search=native={}/lib", native.display());
     println!("cargo:rustc-link-lib=static=universe_core");
+    println!("cargo:rustc-link-lib=iphlpapi");
+    println!("cargo:rustc-link-lib=ws2_32");
     tauri_build::build();
 }

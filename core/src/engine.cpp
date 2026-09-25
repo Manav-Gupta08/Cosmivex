@@ -2,6 +2,7 @@
 #include "universe/process.hpp"
 #include "universe/model.hpp"
 #include "universe/changes.hpp"
+#include "universe/network.hpp"
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -27,6 +28,9 @@ static_assert(sizeof(uos_delta_info) == 16);
 static_assert(sizeof(uos_change_row) == 24);
 static_assert(sizeof(uos_resource_visual) == 8);
 static_assert(sizeof(uos_resource_event) == 16);
+static_assert(sizeof(uos_network_info) == 64);
+static_assert(sizeof(uos_connection_row) == 72);
+static_assert(sizeof(uos_interface_row) == 72);
 
 uint64_t unix_ms() {
     return static_cast<uint64_t>(std::chrono::duration_cast<Milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
@@ -47,6 +51,9 @@ struct uos_engine {
     std::condition_variable changed;
     bool stopped = false;
     bool collect_processes = false;
+    bool collect_network = false;
+    SteadyClock::time_point next_network_sample{};
+    std::shared_ptr<const universe::NetworkSnapshot> network = std::make_shared<universe::NetworkSnapshot>();
     uint64_t configuration_revision = 0;
     SteadyClock::time_point started = SteadyClock::now();
     uos_health latest{UOS_ABI_VERSION, sizeof(uos_health), 0, 0, 0, 2000, UOS_NORMAL, 0, 0};
@@ -59,34 +66,59 @@ struct uos_engine {
         worker = std::jthread([this](std::stop_token stop) {
             auto collector = universe::make_process_collector();
             universe::ProcessTracker tracker;
+            auto network_collector = universe::make_network_collector();
+            universe::NetworkTracker network_tracker;
             std::unique_lock lock(mutex);
             while (!stopped) {
                 const auto revision = configuration_revision;
-                if (collect_processes) {
+                const bool sample_processes = collect_processes;
+                const bool sample_network = collect_network && SteadyClock::now() >= next_network_sample;
+                const auto previous = processes;
+                if (sample_processes || sample_network) {
                     lock.unlock();
                     std::shared_ptr<universe::ProcessSnapshot> sampled;
+                    std::shared_ptr<universe::NetworkSnapshot> sampled_network;
                     try {
-                        sampled = std::make_shared<universe::ProcessSnapshot>(tracker.normalize(collector->collect(stop)));
+                        sampled = sample_processes ? std::make_shared<universe::ProcessSnapshot>(tracker.normalize(collector->collect(stop)))
+                            : std::make_shared<universe::ProcessSnapshot>(*previous);
                     } catch (...) {
                         auto failed = std::make_shared<universe::ProcessSnapshot>();
                         failed->error = 8;
                         failed->observed_at_unix_ms = unix_ms();
                         sampled = std::move(failed);
                     }
+                    if (sample_network) {
+                        try { sampled_network = std::make_shared<universe::NetworkSnapshot>(network_tracker.normalize(network_collector->collect(stop))); }
+                        catch (...) {
+                            sampled_network = std::make_shared<universe::NetworkSnapshot>();
+                            sampled_network->table_errors.fill(8);
+                            sampled_network->interface_error = 8;
+                            sampled_network->observed_at_unix_ms = unix_ms();
+                            network_tracker.reset();
+                        }
+                        sampled_network->enabled = true;
+                    }
                     lock.lock();
                     if (stopped) break;
                     if (revision != configuration_revision) {
                         if (!collect_processes) tracker.reset();
+                        if (!collect_network) network_tracker.reset();
                         continue;
                     }
-                    sampled->events = journal.observe(*sampled, monotonic_ns());
+                    if (sample_processes) sampled->events = journal.observe(*sampled, monotonic_ns());
+                    if (sampled_network) {
+                        network = std::move(sampled_network);
+                        next_network_sample = SteadyClock::now() + Milliseconds(latest.profile == UOS_ECO ? 5000 : 2000);
+                    }
+                    sampled->network = network;
                     processes = std::move(sampled);
                     publish();
                     changed.notify_all();
-                } else { tracker.reset(); }
+                } else { if (!collect_processes) tracker.reset(); }
+                if (!collect_network) network_tracker.reset();
                 const auto interrupted = changed.wait_for(lock, Milliseconds(latest.interval_ms),
                     [this, revision] { return stopped || configuration_revision != revision; });
-                if (!interrupted && !collect_processes) {
+                if (!interrupted && !collect_processes && !collect_network) {
                     publish();
                     changed.notify_all();
                 }
@@ -136,6 +168,7 @@ int32_t uos_set_profile(uos_engine* engine, uint32_t profile) noexcept {
         if (engine->stopped) return UOS_STOPPED;
         if (engine->latest.profile == profile) return UOS_FRAME;
         engine->latest.profile = profile;
+        engine->next_network_sample = {};
         engine->update_interval();
         ++engine->configuration_revision;
         engine->publish();
@@ -154,8 +187,30 @@ int32_t uos_set_process_collection(uos_engine* engine, uint32_t enabled) noexcep
         engine->latest.enabled_collectors = enabled;
         auto cleared = std::make_shared<universe::ProcessSnapshot>();
         cleared->events = enabled ? engine->journal.current() : engine->journal.pause(unix_ms(), monotonic_ns());
+        cleared->network = engine->network;
         engine->processes = std::move(cleared);
         engine->update_interval();
+        ++engine->configuration_revision;
+        engine->publish();
+        engine->changed.notify_all();
+        return UOS_FRAME;
+    } catch (...) { return UOS_ERROR; }
+}
+
+int32_t uos_set_network_collection(uos_engine* engine, uint32_t enabled) noexcept {
+    if (!engine || enabled > 1) return UOS_INVALID;
+    try {
+        std::lock_guard lock(engine->mutex);
+        if (engine->stopped) return UOS_STOPPED;
+        if (engine->collect_network == (enabled != 0)) return UOS_FRAME;
+        auto network = std::make_shared<universe::NetworkSnapshot>();
+        network->enabled = enabled != 0;
+        auto current = std::make_shared<universe::ProcessSnapshot>(*engine->processes);
+        current->network = network;
+        engine->network = std::move(network);
+        engine->processes = std::move(current);
+        engine->collect_network = enabled != 0;
+        engine->next_network_sample = {};
         ++engine->configuration_revision;
         engine->publish();
         engine->changed.notify_all();
@@ -196,6 +251,42 @@ int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t inde
 }
 
 void uos_release_processes(uos_process_snapshot* snapshot) noexcept { delete snapshot; }
+
+int32_t uos_network_info_read(const uos_process_snapshot* snapshot, uos_network_info* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_network_info)) return UOS_INVALID;
+    *output = {};
+    output->abi_version = UOS_ABI_VERSION;
+    output->struct_size = sizeof(uos_network_info);
+    if (const auto& network = snapshot->value->network) {
+        output->enabled = network->enabled ? 1u : 0u;
+        output->connection_count = static_cast<uint32_t>(network->connections.size());
+        output->interface_count = static_cast<uint32_t>(network->interfaces.size());
+        output->truncated = network->truncated ? 1u : 0u;
+        for (size_t index = 0; index < 4; ++index) output->table_errors[index] = network->table_errors[index];
+        output->interface_error = network->interface_error;
+        output->observed_at_unix_ms = network->observed_at_unix_ms;
+        output->collection_ms = network->collection_ms;
+    }
+    return UOS_FRAME;
+}
+
+int32_t uos_connection_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_connection_row* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_connection_row) || !snapshot->value->network || index >= snapshot->value->network->connections.size()) return UOS_INVALID;
+    const auto& row = snapshot->value->network->connections[index];
+    *output = {row.generation, row.owner_creation.value_or(0), row.pid, row.family, row.protocol, row.state, row.local_port, row.remote_port,
+        row.owner_error, row.observations, row.local_address.data(), row.remote_address ? row.remote_address->data() : nullptr,
+        static_cast<uint32_t>(row.local_address.size()), row.remote_address ? static_cast<uint32_t>(row.remote_address->size()) : 0u};
+    return UOS_FRAME;
+}
+
+int32_t uos_interface_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_interface_row* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_interface_row) || !snapshot->value->network || index >= snapshot->value->network->interfaces.size()) return UOS_INVALID;
+    const auto& row = snapshot->value->network->interfaces[index];
+    *output = {row.luid, row.received_bytes, row.sent_bytes, row.receive_bytes_per_second.value_or(0), row.send_bytes_per_second.value_or(0),
+        row.index, row.type, row.up ? 1u : 0u, row.receive_bytes_per_second && row.send_bytes_per_second ? 1u : 0u,
+        row.name.data(), static_cast<uint32_t>(row.name.size()), 0};
+    return UOS_FRAME;
+}
 
 int32_t uos_resource_visual_read(const uos_process_snapshot* snapshot, uint32_t index, uos_resource_visual* output, uint32_t size) noexcept {
     if (!snapshot || !output || size != sizeof(uos_resource_visual) || index >= snapshot->value->processes.size()) return UOS_INVALID;

@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 
 await mkdir('artifacts', { recursive: true })
+const network = process.argv.includes('--network')
 const listener = createServer()
 await new Promise((resolve, reject) => {
   listener.once('error', reject)
@@ -17,6 +18,7 @@ try {
   await expect(async () => { browser = await chromium.connectOverCDP('http://127.0.0.1:9224') }).toPass({ timeout: 20000 })
   const page = browser.contexts()[0].pages()[0]
   await expect(page.getByTestId('connection-status')).toHaveText('Native core connected', { timeout: 15000 })
+  if (network) await page.getByRole('button', { name: 'Network view', exact: true }).click()
   const session = await page.context().newCDPSession(page)
   await session.send('Performance.enable')
   await session.send('Profiler.enable')
@@ -35,14 +37,15 @@ try {
       .sort((left, right) => right.hits - left.hits).slice(0, 15)
     console.log(JSON.stringify({ label, durations, hot }, null, 2))
   }
-  await measure('resources-on')
+  await measure(network ? 'network-view' : 'resources-on')
   await page.getByRole('button', { name: 'Engine diagnostics' }).click()
   console.log('AFTER FRESH LAUNCH', await page.getByRole('complementary').innerText())
-  await page.getByRole('checkbox', { name: 'Resource visuals' }).uncheck()
+  if (!network) await page.getByRole('checkbox', { name: 'Resource visuals' }).uncheck()
   await page.getByRole('button', { name: 'Close diagnostics' }).click()
-  await measure('resources-off')
+  if (network) await page.getByRole('button', { name: 'Universe view', exact: true }).click()
+  await measure(network ? 'universe-view' : 'resources-off')
   await page.getByRole('button', { name: 'Engine diagnostics' }).click()
-  console.log('AFTER DISABLING', await page.getByRole('complementary').innerText())
+  console.log(network ? 'AFTER SWITCHING TO UNIVERSE' : 'AFTER DISABLING', await page.getByRole('complementary').innerText())
   await session.detach()
 } finally {
   await browser?.close()

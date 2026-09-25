@@ -70,9 +70,36 @@ export const processSnapshotSchema = z.strictObject({
 })
 export type ProcessSnapshot = z.infer<typeof processSnapshotSchema>
 
+export const connectionSchema = z.strictObject({
+  id: z.string().regex(/^n:[1-9][0-9]{0,19}$/), pid: unsigned32,
+  family: z.union([z.literal(4), z.literal(6)]), protocol: z.enum(['TCP', 'UDP']),
+  state: z.enum(['UNKNOWN', 'CLOSED', 'LISTEN', 'SYN_SENT', 'SYN_RECEIVED', 'ESTABLISHED', 'FIN_WAIT_1', 'FIN_WAIT_2', 'CLOSE_WAIT', 'CLOSING', 'LAST_ACK', 'TIME_WAIT', 'DELETE_TCB', 'BOUND']),
+  localAddress: z.string().min(1).max(80), localPort: z.number().int().min(0).max(65535),
+  remoteAddress: z.string().min(1).max(80).nullable(), remotePort: z.number().int().min(0).max(65535).nullable(),
+  ownerCreation: unsigned64.nullable(), ownerError: unsigned32, observations: z.number().int().min(1).max(4096),
+}).refine(row => (row.remoteAddress === null) === (row.remotePort === null)
+  && (row.protocol === 'UDP' ? row.remoteAddress === null && row.state === 'BOUND' : row.state !== 'BOUND')
+  && (row.state !== 'LISTEN' || row.remoteAddress === null))
+export type ConnectionRecord = z.infer<typeof connectionSchema>
+
+export const interfaceSchema = z.strictObject({
+  id: z.string().regex(/^if:[0-9]{1,20}$/), index: unsigned32, interfaceType: unsigned32, up: z.boolean(), name: z.string().max(2048),
+  receivedBytes: unsigned64, sentBytes: unsigned64, receiveRate: z.number().nonnegative().finite().nullable(), sendRate: z.number().nonnegative().finite().nullable(),
+}).refine(row => (row.receiveRate === null) === (row.sendRate === null) && (row.up || row.receiveRate === null))
+export type NetworkInterfaceRecord = z.infer<typeof interfaceSchema>
+
+export const networkSnapshotSchema = z.strictObject({
+  enabled: z.boolean(), observedAtUnixMs: unsignedSafeInteger, collectionMs: z.number().nonnegative().finite(),
+  tableErrors: z.array(unsigned32).length(4), interfaceError: unsigned32, truncated: z.boolean(),
+  connections: z.array(connectionSchema).max(4096), interfaces: z.array(interfaceSchema).max(128),
+}).refine(snapshot => (snapshot.enabled || (!snapshot.connections.length && !snapshot.interfaces.length))
+  && new Set(snapshot.connections.map(row => row.id)).size === snapshot.connections.length
+  && new Set(snapshot.interfaces.map(row => row.id)).size === snapshot.interfaces.length)
+export type NetworkSnapshot = z.infer<typeof networkSnapshotSchema>
+
 export const coreFrameSchema = z.strictObject({
   subscriptionId: z.number().int().positive().max(0xffffffff),
-  protocolVersion: z.literal(5),
+  protocolVersion: z.literal(6),
   abiVersion: z.literal(1),
   sequence: z.string().regex(/^[1-9][0-9]{0,19}$/).pipe(z.string().refine(value => BigInt(value) <= 18446744073709551615n)),
   uptimeMs: unsignedSafeInteger,
@@ -81,6 +108,7 @@ export const coreFrameSchema = z.strictObject({
   profile: profileSchema,
   enabledCollectors: z.union([z.literal(0), z.literal(1)]),
   processes: processSnapshotSchema,
+  network: networkSnapshotSchema,
 }).refine(frame => frame.intervalMs === (frame.enabledCollectors === 1
   ? (frame.profile === 'eco' ? 2000 : 1000) : (frame.profile === 'eco' ? 5000 : 2000)))
 

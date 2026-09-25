@@ -109,6 +109,15 @@ h1 { margin: 0; font-size: 21px; font-weight: 500; }
 .event-list button:disabled { opacity: 0.7; }
 .event-list small { grid-column: 2; color: var(--muted); }
 .event-list button span { color: var(--muted); font: 10px 'IBM Plex Mono', monospace; }
+.network-tabs { display: flex; gap: 4px; padding: 7px 0; }
+.network-tabs button { background: transparent; color: var(--muted); font-size: 12px; padding: 6px 10px; border-radius: 3px; }
+.network-tabs button[aria-selected="true"] { background: #20352d; color: #c7dbcb; }
+.network-browser th { color: var(--muted); font: 10px 'Barlow', sans-serif; }
+.network-browser th:first-child { width: 58%; }
+.network-browser td { overflow: hidden; text-overflow: ellipsis; }
+.network-browser .process-name small { display: block; font-size: 9px; color: var(--muted); margin-top: 3px; }
+.network-inspector h2 { min-width: 0; overflow-wrap: anywhere; }
+.network-inspector dl { grid-template-columns: 1fr minmax(0, 1.25fr); }
 @media (max-height: 720px) {
   .app-shell .view-tools { flex-direction: row; top: auto; bottom: 72px; left: 20px; gap: 6px; }
   .view-tools .tool-divider { width: 1px; height: 18px; margin: auto 4px; }
@@ -132,6 +141,7 @@ h1 { margin: 0; font-size: 21px; font-weight: 500; }
   .view-heading h2 { font-size: 25px; }
   .view-tools { left: 15px; top: 345px; }
   .view-modes { left: 21px; top: 231px; }
+  .view-modes button { padding: 0 8px; gap: 5px; font-size: 11px; }
   .process-search { left: 21px; top: 275px; max-width: calc(100% - 42px); }
   .process-browser { left: 64px; top: 335px; max-width: calc(100% - 79px); padding: 8px 10px; }
   .process-browser table { font-size: 9px; }

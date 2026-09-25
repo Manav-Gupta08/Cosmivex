@@ -63,6 +63,52 @@ typedef struct uos_resource_event {
     double threshold;
 } uos_resource_event;
 
+typedef struct uos_network_info {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t enabled;
+    uint32_t connection_count;
+    uint32_t interface_count;
+    uint32_t truncated;
+    uint32_t table_errors[4];
+    uint32_t interface_error;
+    uint32_t reserved;
+    uint64_t observed_at_unix_ms;
+    double collection_ms;
+} uos_network_info;
+
+typedef struct uos_connection_row {
+    uint64_t generation;
+    uint64_t owner_creation;
+    uint32_t pid;
+    uint32_t family;
+    uint32_t protocol;
+    uint32_t state;
+    uint32_t local_port;
+    uint32_t remote_port;
+    uint32_t owner_error;
+    uint32_t observations;
+    const char* local_address;
+    const char* remote_address;
+    uint32_t local_length;
+    uint32_t remote_length;
+} uos_connection_row;
+
+typedef struct uos_interface_row {
+    uint64_t luid;
+    uint64_t received_bytes;
+    uint64_t sent_bytes;
+    double receive_rate;
+    double send_rate;
+    uint32_t index;
+    uint32_t type;
+    uint32_t up;
+    uint32_t rates_available;
+    const char* name;
+    uint32_t name_length;
+    uint32_t reserved;
+} uos_interface_row;
+
 typedef struct uos_process_info {
     uint32_t abi_version;
     uint32_t struct_size;
@@ -134,6 +180,10 @@ int32_t uos_wait(uos_engine* engine, uint64_t after_sequence, uint32_t timeout_m
                  uos_health* output, uint32_t output_size) UOS_NOEXCEPT;
 int32_t uos_set_profile(uos_engine* engine, uint32_t profile) UOS_NOEXCEPT;
 int32_t uos_set_process_collection(uos_engine* engine, uint32_t enabled) UOS_NOEXCEPT;
+int32_t uos_set_network_collection(uos_engine* engine, uint32_t enabled) UOS_NOEXCEPT;
+int32_t uos_network_info_read(const uos_process_snapshot* snapshot, uos_network_info* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_connection_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_connection_row* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_interface_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_interface_row* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_acquire_processes(uos_engine* engine, uint64_t sequence, uos_process_snapshot** output) UOS_NOEXCEPT;
 int32_t uos_process_info_read(const uos_process_snapshot* snapshot, uos_process_info* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_process_row* output, uint32_t size) UOS_NOEXCEPT;

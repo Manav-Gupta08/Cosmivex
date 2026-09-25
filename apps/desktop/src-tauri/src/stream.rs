@@ -105,6 +105,7 @@ struct Packet<'a> {
     enabled_collectors: u32,
     processes: ProcessPatch<'a>,
     events: EventBatch<'a>,
+    network: Option<&'a crate::network::NetworkSnapshot>,
 }
 
 pub fn encode(
@@ -134,7 +135,7 @@ pub fn encode(
         0
     };
     let body = Packet {
-        protocol_version: 5,
+        protocol_version: 6,
         subscription_id: subscription,
         kind: if full { "snapshot" } else { "delta" },
         sequence: &current.sequence,
@@ -145,6 +146,16 @@ pub fn encode(
         interval_ms: current.interval_ms,
         profile: current.profile,
         enabled_collectors: current.enabled_collectors,
+        network: if full
+            || base.is_none_or(|before| {
+                before.processes.network.observed_at_unix_ms
+                    != current.processes.network.observed_at_unix_ms
+                    || before.processes.network.enabled != current.processes.network.enabled
+            }) {
+            Some(&current.processes.network)
+        } else {
+            None
+        },
         processes: ProcessPatch {
             observed_at_unix_ms: current.processes.observed_at_unix_ms,
             logical_cpus: current.processes.logical_cpus,
@@ -223,7 +234,7 @@ impl Transfer {
     pub fn frame(&self, subscription: u32) -> Frame {
         let (start, end) = self.ranges[self.index];
         Frame::Chunk {
-            protocol_version: 5,
+            protocol_version: 6,
             subscription_id: subscription,
             transfer_id: self.id.to_string(),
             chunk_index: self.index,

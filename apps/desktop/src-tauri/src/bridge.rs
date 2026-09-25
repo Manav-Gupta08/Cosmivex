@@ -55,7 +55,7 @@ impl Delivery {
                 }
                 Err(message) => {
                     let _ = subscriber.channel.send(Frame::Error {
-                        protocol_version: 5,
+                        protocol_version: 6,
                         subscription_id: subscriber.id,
                         message,
                     });
@@ -201,6 +201,10 @@ impl Bridge {
 
     pub fn set_process_collection(&self, enabled: bool) -> Result<(), String> {
         self.engine.set_process_collection(enabled)
+    }
+
+    pub fn set_network_collection(&self, enabled: bool) -> Result<(), String> {
+        self.engine.set_network_collection(enabled)
     }
 
     pub fn shutdown(&self) {

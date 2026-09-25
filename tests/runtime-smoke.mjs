@@ -2,6 +2,9 @@ import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { spawn, fork } from 'node:child_process'
 import { PerspectiveCamera, Vector3 } from 'three'
+import { createServer, createConnection } from 'node:net'
+import { createSocket } from 'node:dgram'
+import { once } from 'node:events'
 
 const native = process.argv.includes('--native')
 const endpoint = process.env.UOS_TEST_ENDPOINT ?? (native ? 'http://127.0.0.1:9223' : 'http://127.0.0.1:1420')
@@ -109,6 +112,101 @@ async function verifyResources() {
     await page.getByRole('button', { name: 'Close process details' }).click()
     console.log(JSON.stringify({ resourceProbePid: pid, cpuBrightnessBefore: quiet.brightness, cpuBrightnessAfter: busy.brightness, memoryAreaBefore: small.area, memoryAreaAfter: large.area, workingSet: largeMemory, resourceToggleVerified: true }))
   } finally { if (probe.exitCode === null) probe.kill() }
+}
+
+async function verifyNetwork() {
+  let accepted
+  const server = createServer(socket => { accepted = socket; socket.on('error', () => {}) })
+  const udp = createSocket('udp4')
+  let client
+  try {
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    udp.bind(0, '127.0.0.1')
+    await once(udp, 'listening')
+    const serverPort = server.address().port
+    const udpPort = udp.address().port
+    client = createConnection({ host: '127.0.0.1', port: serverPort })
+    client.on('error', () => {})
+    await once(client, 'connect')
+    const clientPort = client.localPort
+    await page.getByRole('button', { name: 'Network view', exact: true }).click()
+    await expect.poll(async () => Number(await page.getByTestId('connection-count').innerText()), { timeout: 10000 }).toBeGreaterThan(0)
+    await page.getByRole('textbox', { name: 'Search network' }).fill(String(clientPort))
+    const tcp = page.getByRole('button', { name: `TCP 127.0.0.1:${clientPort} to 127.0.0.1:${serverPort}, PID ${process.pid}`, exact: true })
+    await expect(tcp).toBeVisible({ timeout: 10000 })
+    await tcp.click()
+    await expect(page.getByTestId('network-state')).toHaveText('ESTABLISHED')
+    await expect(page.getByTestId('network-local')).toHaveText(`127.0.0.1:${clientPort}`)
+    await expect(page.getByTestId('network-remote')).toHaveText(`127.0.0.1:${serverPort}`)
+    await expect(page.getByTestId('network-pid')).toHaveText(String(process.pid))
+    await page.screenshot({ path: 'artifacts/native-network-connection.png' })
+    await page.getByRole('button', { name: 'Close network details' }).click()
+    const networkCamera = new PerspectiveCamera(48, 1360 / 820, 0.1, 600)
+    networkCamera.position.set(4, 2, 5)
+    networkCamera.lookAt(0, 0, 0)
+    networkCamera.updateMatrixWorld()
+    const endpointPoint = new Vector3(0.45, 0, 0).project(networkCamera)
+    await expect(async () => {
+      await page.mouse.click((endpointPoint.x + 1) * 680, (1 - endpointPoint.y) * 410)
+      await expect(page.getByTestId('network-local')).toHaveText(`127.0.0.1:${clientPort}`, { timeout: 500 })
+    }).toPass({ timeout: 8000 })
+    await page.getByRole('button', { name: `Open process (${process.pid})`, exact: true }).click()
+    await expect(page.getByTestId('process-pid')).toHaveText(String(process.pid))
+    await page.getByRole('button', { name: 'Close process details' }).click()
+    await page.getByRole('button', { name: 'Network view', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Search network' }).fill(String(udpPort))
+    const bound = page.getByRole('button', { name: `UDP 127.0.0.1:${udpPort}, PID ${process.pid}`, exact: true })
+    await expect(bound).toBeVisible({ timeout: 10000 })
+    await bound.click()
+    await expect(page.getByTestId('network-state')).toHaveText('BOUND')
+    await expect(page.getByTestId('network-remote')).toHaveText('Not observed')
+    udp.close()
+    await expect(page.getByTestId('network-status')).toHaveText('No longer observed', { timeout: 10000 })
+    await page.getByRole('button', { name: 'Close network details' }).click()
+    await page.getByRole('textbox', { name: 'Search network' }).fill('')
+    await page.getByRole('button', { name: 'Close network list' }).click()
+    await page.getByRole('button', { name: 'Reset camera' }).click()
+    await canvasIsVisible()
+    await page.screenshot({ path: 'artifacts/native-network.png' })
+    await page.getByRole('button', { name: 'Engine diagnostics' }).click()
+    await expect.poll(async () => Number(await page.getByTestId('network-bridges').innerText())).toBeGreaterThan(0)
+    await expect(page.getByTestId('process-instances')).toHaveText('0')
+    await expect(page.getByTestId('camera-motion')).toHaveText('Still', { timeout: 10000 })
+    const sequence = BigInt(await page.getByTestId('sequence').innerText())
+    const before = Number(await page.getByTestId('frames-rendered').innerText())
+    await expect.poll(async () => BigInt(await page.getByTestId('sequence').innerText()) >= sequence + 4n, { timeout: 10000 }).toBe(true)
+    expect(Number(await page.getByTestId('frames-rendered').innerText()) - before).toBeLessThan(24)
+    await page.getByRole('button', { name: 'Close diagnostics' }).click()
+    await page.getByRole('button', { name: 'Network list', exact: true }).click()
+    expect(await page.getByRole('row').count()).toBeLessThanOrEqual(51)
+    await page.getByRole('tab', { name: 'Interfaces' }).click()
+    await page.getByRole('table').locator('tbody button').first().click()
+    await expect(page.getByText('Interface / all processes', { exact: true })).toBeVisible()
+    await page.setViewportSize({ width: 400, height: 740 })
+    expect(await page.getByRole('complementary', { name: 'Network details' }).evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false)
+    await page.screenshot({ path: 'artifacts/native-narrow-interface.png' })
+    await page.getByRole('button', { name: 'Close network details' }).click()
+    await page.getByRole('button', { name: 'Reset camera' }).click()
+    await canvasIsVisible()
+    await page.screenshot({ path: 'artifacts/native-narrow-network.png' })
+    await page.setViewportSize({ width: 1360, height: 820 })
+    await page.getByRole('checkbox', { name: 'Network collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Network collection' })).not.toBeChecked({ timeout: 6000 })
+    await expect(page.getByTestId('connection-count')).toHaveText('0')
+    await page.getByRole('button', { name: 'Universe view', exact: true }).click()
+    await expect.poll(async () => Number(await page.getByTestId('process-count').innerText())).toBeGreaterThan(0)
+    await page.getByRole('button', { name: 'Network view', exact: true }).click()
+    await page.getByRole('checkbox', { name: 'Network collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Network collection' })).toBeChecked({ timeout: 6000 })
+    await page.getByRole('button', { name: 'Universe view', exact: true }).click()
+    console.log(JSON.stringify({ realTcpOwner: process.pid, clientPort, serverPort, udpPort, udpRemovalVerified: true, networkToggleIndependent: true }))
+  } finally {
+    client?.destroy()
+    accepted?.destroy()
+    server.close()
+    try { udp.close() } catch {}
+  }
 }
 
 try {
@@ -233,6 +331,7 @@ try {
       await page.getByRole('button', { name: 'Close process details' }).click()
     }
     await verifyResources()
+    await verifyNetwork()
     await page.getByRole('button', { name: 'Process list', exact: true }).click()
     await expect(page.getByRole('table')).toBeVisible()
     expect(await page.getByRole('row').count()).toBeLessThanOrEqual(51)

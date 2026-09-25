@@ -1,12 +1,14 @@
 import { create } from 'zustand'
-import type { CoreFrame, ProcessRecord, GalaxyRecord } from '../../../../shared/protocol/core'
+import type { CoreFrame, ProcessRecord, GalaxyRecord, ConnectionRecord, NetworkInterfaceRecord } from '../../../../shared/protocol/core'
 import { buildLayout, type UniverseLayout, type ViewMode, type Position } from '../../universe/layout'
 import type { CorePacket, ProcessEvent } from '../../../../shared/protocol/stream'
 import { updateResourceLevels, type ResourceLevels } from '../../universe/resources'
+import { buildNetworkLayout, matchingConnections, type NetworkLayout } from '../../universe/network-layout'
 
 export interface LifecycleEffect { sequence: string; kind: 'PROCESS_CREATED' | 'PROCESS_TERMINATED' | 'RESOURCE_SPIKE'; universe: Position; hierarchy: Position; startedAt: number }
 
 const emptyLayout = buildLayout({ observedAtUnixMs: 0, logicalCpus: 1, error: 0, truncated: false, collectionMs: 0, rows: [], galaxies: [], modelBuildMs: 0 })
+const emptyNetworkLayout = buildNetworkLayout({ enabled: false, observedAtUnixMs: 0, collectionMs: 0, tableErrors: [0, 0, 0, 0], interfaceError: 0, truncated: false, connections: [], interfaces: [] })
 
 function matchingIds(frame: CoreFrame | null, query: string): string[] {
   const search = query.trim().toLowerCase()
@@ -28,6 +30,10 @@ interface CoreState {
   query: string
   selected: ProcessRecord | null
   selectedGalaxy: GalaxyRecord | null
+  selectedConnection: ConnectionRecord | null
+  selectedInterface: NetworkInterfaceRecord | null
+  networkIds: string[]
+  networkLayout: NetworkLayout
   layout: UniverseLayout
   viewMode: ViewMode
   focusRevision: number
@@ -47,6 +53,8 @@ interface CoreState {
   setQuery: (query: string) => void
   select: (id: string | null) => void
   selectGalaxy: (id: string | null) => void
+  selectConnection: (id: string | null) => void
+  selectInterface: (id: string | null) => void
   setViewMode: (mode: ViewMode) => void
   begin: () => void
   receive: (frame: CoreFrame, bytes: number, now: number, packet?: CorePacket) => void
@@ -57,15 +65,19 @@ export const useCoreStore = create<CoreState>((set) => ({
   status: 'connecting', frame: null, bytesReceived: 0, lastReceivedAt: null, error: null,
   processIds: [], query: '', selected: null, focusRevision: 0,
   selectedGalaxy: null, layout: emptyLayout, viewMode: 'universe',
+  selectedConnection: null, selectedInterface: null, networkIds: [], networkLayout: emptyNetworkLayout,
   events: [], eventCursor: '0', evictedEvents: '0', missedEvents: '0', effects: [], lastDelivery: null, fullSnapshots: 0, deltaBatches: 0, changedRows: 0, lastPayloadBytes: 0,
   resourceLevels: new Map(), resourceVisuals: true,
   setResourceVisuals: resourceVisuals => set({ resourceVisuals }),
-  setQuery: query => set(state => ({ query, processIds: reuseIds(state.processIds, matchingIds(state.frame, query)) })),
-  select: id => set(state => ({ selected: state.frame?.processes.rows.find(process => process.id === id) ?? null, selectedGalaxy: null, focusRevision: state.focusRevision + 1 })),
-  selectGalaxy: id => set(state => ({ selectedGalaxy: state.frame?.processes.galaxies.find(group => group.id === id) ?? null, selected: null, focusRevision: state.focusRevision + 1 })),
-  setViewMode: viewMode => set({ viewMode }),
+  setQuery: query => set(state => ({ query, processIds: reuseIds(state.processIds, matchingIds(state.frame, query)), networkIds: state.frame ? reuseIds(state.networkIds, matchingConnections(state.frame.network, query)) : [] })),
+  select: id => set(state => ({ selected: state.frame?.processes.rows.find(process => process.id === id) ?? null, selectedGalaxy: null, selectedConnection: null, selectedInterface: null, focusRevision: state.focusRevision + 1 })),
+  selectGalaxy: id => set(state => ({ selectedGalaxy: state.frame?.processes.galaxies.find(group => group.id === id) ?? null, selected: null, selectedConnection: null, selectedInterface: null, focusRevision: state.focusRevision + 1 })),
+  selectConnection: id => set(state => ({ selectedConnection: state.frame?.network.connections.find(row => row.id === id) ?? null, selectedInterface: null, selected: null, selectedGalaxy: null, focusRevision: state.focusRevision + 1 })),
+  selectInterface: id => set(state => ({ selectedInterface: state.frame?.network.interfaces.find(row => row.id === id) ?? null, selectedConnection: null, selected: null, selectedGalaxy: null, focusRevision: state.focusRevision + 1 })),
+  setViewMode: viewMode => set(state => ({ viewMode, selected: null, selectedGalaxy: null, selectedConnection: null, selectedInterface: null,
+    query: '', processIds: reuseIds(state.processIds, matchingIds(state.frame, '')), networkIds: state.frame ? reuseIds(state.networkIds, matchingConnections(state.frame.network, '')) : [] })),
   begin: () => set({ status: 'connecting', frame: null, error: null, bytesReceived: 0, lastReceivedAt: null, processIds: [], selected: null, selectedGalaxy: null, query: '', layout: emptyLayout,
-    events: [], eventCursor: '0', evictedEvents: '0', missedEvents: '0', effects: [], lastDelivery: null, fullSnapshots: 0, deltaBatches: 0, changedRows: 0, lastPayloadBytes: 0, resourceLevels: new Map() }),
+    events: [], eventCursor: '0', evictedEvents: '0', missedEvents: '0', effects: [], lastDelivery: null, fullSnapshots: 0, deltaBatches: 0, changedRows: 0, lastPayloadBytes: 0, resourceLevels: new Map(), selectedConnection: null, selectedInterface: null, networkIds: [], networkLayout: emptyNetworkLayout }),
   receive: (frame, bytes, now, packet) => set(state => {
     if (state.frame?.subscriptionId === frame.subscriptionId && (BigInt(state.frame.sequence) > BigInt(frame.sequence)
       || (state.frame.sequence === frame.sequence && packet?.kind !== 'snapshot'))) return state
@@ -99,6 +111,10 @@ export const useCoreStore = create<CoreState>((set) => ({
       processIds: reuseIds(state.processIds, matchingIds(frame, state.query)),
       selected: frame.processes.rows.find(process => process.id === state.selected?.id) ?? state.selected,
       selectedGalaxy: frame.processes.galaxies.find(group => group.id === state.selectedGalaxy?.id) ?? state.selectedGalaxy,
+      selectedConnection: frame.network.connections.find(row => row.id === state.selectedConnection?.id) ?? state.selectedConnection,
+      selectedInterface: frame.network.interfaces.find(row => row.id === state.selectedInterface?.id) ?? state.selectedInterface,
+      networkIds: reuseIds(state.networkIds, matchingConnections(frame.network, state.query)),
+      networkLayout: buildNetworkLayout(frame.network, state.networkLayout),
       layout, events, effects: stableEffects, eventCursor: packet?.events.throughSequence ?? state.eventCursor,
       evictedEvents: packet?.events.evictedCount ?? state.evictedEvents, missedEvents: (BigInt(state.missedEvents) + gap).toString(),
       lastDelivery: packet?.kind ?? 'snapshot', fullSnapshots: state.fullSnapshots + (packet?.kind === 'delta' ? 0 : 1),

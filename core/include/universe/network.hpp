@@ -40,6 +40,7 @@ struct NetworkInterface {
 };
 
 struct NetworkSnapshot {
+    bool enabled = false;
     uint64_t observed_at_unix_ms = 0;
     uint64_t monotonic_ns = 0;
     double collection_ms = 0;

@@ -7,7 +7,7 @@ import { renderMetrics } from './metrics'
 
 export function LifecycleEffects({ profile }: { profile: Profile }) {
   const effects = useCoreStore(state => state.effects)
-  const mode = useCoreStore(state => state.viewMode)
+  const mode = useCoreStore(state => state.viewMode === 'hierarchy' ? 'hierarchy' : 'universe')
   const resourceVisuals = useCoreStore(state => state.resourceVisuals)
   const mesh = useRef<InstancedMesh>(null)
   const transform = useRef(new Object3D())
@@ -18,7 +18,7 @@ export function LifecycleEffects({ profile }: { profile: Profile }) {
     const preference = matchMedia('(prefers-reduced-motion: reduce)')
     const changed = () => setReducedMotion(preference.matches)
     preference.addEventListener('change', changed)
-    return () => preference.removeEventListener('change', changed)
+    return () => { preference.removeEventListener('change', changed); renderMetrics.lifecycleEffects = 0 }
   }, [])
   useLayoutEffect(() => {
     if (mesh.current) mesh.current.count = 0
