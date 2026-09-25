@@ -1,3 +1,4 @@
+use crate::universe::{self, Galaxy};
 use serde::Serialize;
 use std::{ffi::c_void, mem::size_of, ptr::NonNull, sync::Arc};
 
@@ -57,6 +58,10 @@ pub struct Process {
     pub id: String,
     pub pid: u32,
     pub parent_pid: u32,
+    pub parent_id: Option<String>,
+    pub parent_status: &'static str,
+    pub galaxy_id: String,
+    pub depth: u32,
     pub name: String,
     pub thread_count: u32,
     pub creation_filetime: Option<String>,
@@ -76,6 +81,8 @@ pub struct ProcessSnapshot {
     pub truncated: bool,
     pub collection_ms: f64,
     pub rows: Vec<Process>,
+    pub galaxies: Vec<Galaxy>,
+    pub model_build_ms: f64,
 }
 
 pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnapshot>>, String> {
@@ -127,6 +134,10 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
             id: format!("{}:{}", row.pid, row.generation),
             pid: row.pid,
             parent_pid: row.parent_pid,
+            parent_id: None,
+            parent_status: "root",
+            galaxy_id: String::new(),
+            depth: 0,
             name,
             thread_count: row.thread_count,
             creation_filetime: (row.available & 1 != 0).then(|| row.creation_filetime.to_string()),
@@ -143,6 +154,7 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
             memory_error: row.memory_error,
         });
     }
+    let (galaxies, model_build_ms) = universe::read(handle.0.as_ptr(), &mut rows)?;
     Ok(Some(Arc::new(ProcessSnapshot {
         observed_at_unix_ms: info.observed_at_unix_ms,
         logical_cpus: info.logical_cpus,
@@ -150,6 +162,8 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
         truncated: info.truncated != 0,
         collection_ms: info.collection_ms,
         rows,
+        galaxies,
+        model_build_ms,
     })))
 }
 
@@ -178,6 +192,21 @@ mod tests {
                     assert!(process.working_set_bytes.is_some());
                     assert!(process.creation_filetime.is_some());
                     assert_eq!(health.processes.error, 0);
+                    let group = health
+                        .processes
+                        .galaxies
+                        .iter()
+                        .find(|galaxy| galaxy.id == process.galaxy_id)
+                        .unwrap();
+                    assert!(group.executable_path.is_some());
+                    assert!(group.process_count > 0);
+                    assert!(health
+                        .processes
+                        .rows
+                        .iter()
+                        .any(|row| row.id == group.root_id));
+                    assert_eq!(process.parent_status, "verified");
+                    assert!(process.parent_id.is_some());
                     found = true;
                     break;
                 }

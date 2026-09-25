@@ -54,6 +54,33 @@ typedef struct uos_health {
     uint32_t reserved;
 } uos_health;
 
+typedef struct uos_model_info {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t galaxy_count;
+    uint32_t reserved;
+    double build_ms;
+} uos_model_info;
+
+typedef struct uos_relationship {
+    int32_t parent_index;
+    uint32_t status;
+    uint32_t galaxy_index;
+    uint32_t depth;
+} uos_relationship;
+
+typedef struct uos_galaxy {
+    uint32_t root_index;
+    uint32_t process_count;
+    uint32_t cpu_sample_count;
+    uint32_t memory_sample_count;
+    double cpu_percent;
+    uint64_t working_set_bytes;
+    const char* executable_path;
+    uint32_t path_length;
+    uint32_t image_error;
+} uos_galaxy;
+
 uos_engine* uos_create(uint32_t abi_version, uint32_t health_size) UOS_NOEXCEPT;
 int32_t uos_wait(uos_engine* engine, uint64_t after_sequence, uint32_t timeout_ms,
                  uos_health* output, uint32_t output_size) UOS_NOEXCEPT;
@@ -63,6 +90,9 @@ int32_t uos_acquire_processes(uos_engine* engine, uint64_t sequence, uos_process
 int32_t uos_process_info_read(const uos_process_snapshot* snapshot, uos_process_info* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_process_row* output, uint32_t size) UOS_NOEXCEPT;
 void uos_release_processes(uos_process_snapshot* snapshot) UOS_NOEXCEPT;
+int32_t uos_model_info_read(const uos_process_snapshot* snapshot, uos_model_info* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_relationship_read(const uos_process_snapshot* snapshot, uint32_t index, uos_relationship* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_galaxy_read(const uos_process_snapshot* snapshot, uint32_t index, uos_galaxy* output, uint32_t size) UOS_NOEXCEPT;
 void uos_stop(uos_engine* engine) UOS_NOEXCEPT;
 void uos_destroy(uos_engine* engine) UOS_NOEXCEPT;
 

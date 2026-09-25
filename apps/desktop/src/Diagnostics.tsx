@@ -39,8 +39,11 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>CPU submission</dt><dd>{metrics.frames ? `${metrics.submissionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>GPU frame time</dt><dd>Unavailable</dd>
       <dt>Process instances</dt><dd data-testid="process-instances">{metrics.processInstances}</dd>
+      <dt>Galaxy instances</dt><dd data-testid="galaxy-instances">{metrics.galaxyInstances}</dd>
+      <dt>Parent links</dt><dd data-testid="parent-links">{metrics.parentLinks}</dd>
       <dt>Snapshot payload RX</dt><dd>{status === 'connected' ? `${metrics.bytesPerSecond.toFixed(0)} B/s` : 'Unavailable'}</dd>
       <dt>Collector duration</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.collectionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
+      <dt>Model build</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.modelBuildMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Logical processors</dt><dd>{frame?.processes.observedAtUnixMs ? frame.processes.logicalCpus : 'Unavailable'}</dd>
       <dt>Core / frontend CPU</dt><dd>Not measured</dd>
       <dt>Memory</dt><dd>Not measured</dd>

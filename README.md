@@ -5,22 +5,26 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 2 is implemented and verified in the actual Windows application. Real
-Windows processes appear as instanced stars, with PID/name search, smooth focus,
-selection, exact process details and an optional paged process list. CPU and
-working-set measurements come from the C++ collector, not the renderer.
+Phase 3 is implemented and verified in the actual Windows application. Real
+Windows processes appear as instanced stars in selectable, inferred galaxies.
+Switch between the galaxy universe and process hierarchy, search by name/PID,
+inspect processes or groups, and navigate validated parent links. Relationships,
+membership, CPU and working-set measurements come from C++, not the renderer.
 
 Process metadata collection is enabled by default and can be switched off in the
 bottom bar. Missing CPU/memory values remain unavailable; an exited selection
 retains its last observation with an explicit status. No synthetic process data
-is supplied to the application. Galaxy grouping and process hierarchy are Phase 3.
+is supplied to the application. Grouping is conservative: only connected processes
+with validated ancestry and identical observed executable paths share a galaxy.
+It is not an OS application registry; cross-image helpers can remain separate.
 Network, filesystem, SQLite recording, replay, LOD benchmarks, and effects remain
 later phases. The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 2 verification](docs/phase-2.md) for current results and open limits;
+See [Phase 3 verification](docs/phase-3.md) for current results and open limits;
+[Phase 2 verification](docs/phase-2.md) preserves the process-telemetry baseline and
 [Phase 1 verification](docs/phase-1.md) preserves the foundation baseline.
 
 ## Prerequisites
@@ -81,9 +85,11 @@ browser-only state. `verify-desktop.ps1` launches and closes its own release app
 temporarily enables loopback WebView2 debugging for that child only, exercises real
 IPC and rendering, closes it, and verifies reopening. Port 9223 must be available;
 use `-Port 9224` when occupied. No debugging port is enabled in ordinary launches.
-The verifier starts its own bounded CPU/memory workload, compares its observed PID,
+The verifier starts its own bounded parent/child CPU/memory workload, compares its observed PID,
 parent PID, CPU and working set with Windows reference measurements, then ends
-that specific test process and verifies disappearance. It does not stop unrelated
+that specific test process and verifies disappearance. It also checks real galaxy
+membership, direct ring picking, parent navigation, and both spatial layouts.
+It does not stop unrelated
 processes. The workload is test-only and exits on its own after two minutes.
 
 Screenshots and measured samples are generated under ignored `artifacts/`.
@@ -95,6 +101,12 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - Drag to orbit, right-drag to pan, scroll to zoom; crosshair resets the camera.
 - Click a process star, or search a name/exact PID and press Enter, to focus and
   inspect it. The list button opens at most 50 rows at a time with sorting/paging.
+- Use Universe/Hierarchy to switch spatial layouts. The process list can use
+  hierarchy order; depth is shown in the inspector. Missing or reused parent PIDs
+  stay unresolved rather than attaching to unrelated current processes.
+- Click a galaxy ring or use the galaxy list to inspect its observed image path,
+  root, members and aggregates. CPU/memory sample coverage is shown explicitly.
+  These are inferred same-image ancestry groups, not verified product boundaries.
 - Diagnostics are optional. They show core state, actual draw counts and received
   health-payload throughput. GPU timing, CPU attribution, and memory readouts are
   explicitly unavailable in-app until those measurements are implemented.
@@ -108,8 +120,10 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - Quality switches into/out of Cinematic recreate the canvas and currently reset
   the camera. CPU/memory visual scaling and effects remain a later phase.
 - One immutable latest process snapshot and one acknowledged channel frame prevent
-  event backlog. Metric-only updates do not rebuild GPU matrices or invalidate the
-  viewport. Native collection happens outside the shared-state lock.
+  event backlog. The snapshot includes the matching native hierarchy and groups.
+  Metric-only updates reuse layouts and GPU matrices; parent links use a batched
+  geometry, and galaxies/processes use instancing. Native collection happens
+  outside the shared-state lock. Successful image queries are lifetime-cached.
 - CPU uses 0-100% of total logical processor capacity; working set is not private
   memory. Sampling may miss short-lived processes. At most 4,096 processes are
   collected; any truncation is explicit. No history writes.
@@ -121,8 +135,3 @@ mutation, elevated tracing, AI APIs, or history database. WebView2 may
 maintain its standard application profile/cache; that is separate from telemetry
 history. All fonts and assets are packaged locally. Diagnostic test fixtures are
 test-only and never included as production system observations.
-
-Git remains local. The repository identity was set once to `Manav-Gupta08` /
-`manavgupta0808@gmail.com`. Group commits by meaningful features, not tiny edits.
-Only local add/commit/minor tags and read-only Git operations are part of the
-workflow. No branches, remotes, or pushes. Major tags require explicit approval.

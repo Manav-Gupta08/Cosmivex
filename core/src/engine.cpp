@@ -1,5 +1,6 @@
 #include "universe/engine.h"
 #include "universe/process.hpp"
+#include "universe/model.hpp"
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -16,6 +17,9 @@ static_assert(offsetof(uos_health, sequence) == 8);
 static_assert(offsetof(uos_health, interval_ms) == 32);
 static_assert(sizeof(uos_process_info) == 40);
 static_assert(sizeof(uos_process_row) == 72);
+static_assert(sizeof(uos_model_info) == 24);
+static_assert(sizeof(uos_relationship) == 16);
+static_assert(sizeof(uos_galaxy) == 48);
 
 struct uos_process_snapshot {
     std::shared_ptr<const universe::ProcessSnapshot> value;
@@ -52,11 +56,14 @@ struct uos_engine {
                     }
                     lock.lock();
                     if (stopped) break;
-                    if (revision != configuration_revision) { tracker = {}; continue; }
+                    if (revision != configuration_revision) {
+                        if (!collect_processes) tracker.reset();
+                        continue;
+                    }
                     processes = std::move(sampled);
                     publish();
                     changed.notify_all();
-                } else { tracker = {}; }
+                } else { tracker.reset(); }
                 const auto interrupted = changed.wait_for(lock, Milliseconds(latest.interval_ms),
                     [this, revision] { return stopped || configuration_revision != revision; });
                 if (!interrupted && !collect_processes) {
@@ -167,6 +174,33 @@ int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t inde
 }
 
 void uos_release_processes(uos_process_snapshot* snapshot) noexcept { delete snapshot; }
+
+int32_t uos_model_info_read(const uos_process_snapshot* snapshot, uos_model_info* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_model_info)) return UOS_INVALID;
+    const auto& model = snapshot->value->universe;
+    *output = {UOS_ABI_VERSION, sizeof(uos_model_info), model ? static_cast<uint32_t>(model->galaxies.size()) : 0u, 0,
+        model ? model->build_ms : 0};
+    return UOS_FRAME;
+}
+
+int32_t uos_relationship_read(const uos_process_snapshot* snapshot, uint32_t index, uos_relationship* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_relationship) || !snapshot->value->universe
+        || index >= snapshot->value->universe->relationships.size()) return UOS_INVALID;
+    const auto& relation = snapshot->value->universe->relationships[index];
+    *output = {relation.parent_index, static_cast<uint32_t>(relation.status), relation.galaxy_index, relation.depth};
+    return UOS_FRAME;
+}
+
+int32_t uos_galaxy_read(const uos_process_snapshot* snapshot, uint32_t index, uos_galaxy* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_galaxy) || !snapshot->value->universe
+        || index >= snapshot->value->universe->galaxies.size()) return UOS_INVALID;
+    const auto& galaxy = snapshot->value->universe->galaxies[index];
+    const auto& root = snapshot->value->processes[galaxy.root_index].observation;
+    *output = {galaxy.root_index, galaxy.process_count, galaxy.cpu_sample_count, galaxy.memory_sample_count,
+        galaxy.cpu_percent, galaxy.working_set_bytes, root.executable_path ? root.executable_path->data() : nullptr,
+        root.executable_path ? static_cast<uint32_t>(root.executable_path->size()) : 0u, root.image_error};
+    return UOS_FRAME;
+}
 
 void uos_stop(uos_engine* engine) noexcept {
     if (!engine) return;

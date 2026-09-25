@@ -75,6 +75,9 @@ int main(int argc, char* argv[]) {
         const auto next = tracker.normalize(sample(100, 10000000, 2000000000));
         check(std::abs(*next.processes[0].cpu_percent - 25.0) < 0.001, "one busy core out of four = 25 percent");
         check(first.processes[0].generation == next.processes[0].generation, "identity stable across updates");
+        auto renamed = sample(100, 10000000, 2500000000);
+        renamed.processes[0].name = "renamed.exe";
+        check(tracker.normalize(std::move(renamed)).processes[0].generation == next.processes[0].generation, "creation identity survives name changes");
         const auto reused = tracker.normalize(sample(200, 20000000, 3000000000));
         check(!reused.processes[0].cpu_percent, "PID reuse invalidates CPU baseline");
         check(reused.processes[0].generation != next.processes[0].generation, "PID reuse gets new identity");
@@ -91,6 +94,9 @@ int main(int argc, char* argv[]) {
         auto failed = sample(200, 0, 7000000000);
         failed.error = 5;
         check(tracker.normalize(std::move(failed)).processes.empty(), "failed collection cannot masquerade as complete");
+        const auto before_reset = tracker.normalize(sample(300, 0, 8000000000)).processes[0].generation;
+        tracker.reset();
+        check(tracker.normalize(sample(400, 0, 9000000000)).processes[0].generation > before_reset, "collection reset never reuses a generation");
 
         auto collector = universe::make_process_collector();
         auto collection = collector->collect();

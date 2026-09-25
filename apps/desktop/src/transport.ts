@@ -30,7 +30,7 @@ export function connectCore(): () => void {
     void invoke('ack_core', { subscriptionId: frame.subscriptionId, sequence: frame.sequence })
       .catch((error: unknown) => { if (!disposed) store.fail(String(error)) })
   }
-  void invoke<number>('subscribe_core', { protocolVersion: 2, onFrame: channel })
+  void invoke<number>('subscribe_core', { protocolVersion: 3, onFrame: channel })
     .then(id => {
       subscriptionId = id
       if (disposed) void invoke('unsubscribe_core', { subscriptionId: id }).catch(() => {})

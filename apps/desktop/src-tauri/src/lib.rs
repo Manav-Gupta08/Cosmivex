@@ -1,6 +1,7 @@
 mod bridge;
 mod native;
 mod process;
+mod universe;
 
 use bridge::{Bridge, Frame};
 use native::Profile;
@@ -14,7 +15,7 @@ fn subscribe_core(
     on_frame: Channel<Frame>,
     protocol_version: u32,
 ) -> Result<u32, String> {
-    if protocol_version != 2 {
+    if protocol_version != 3 {
         return Err("Unsupported UI protocol version".into());
     }
     state.0.as_ref().map_err(Clone::clone)?.subscribe(on_frame)

@@ -3,11 +3,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ProcessBrowser, ProcessInspector } from '../../apps/desktop/src/Processes'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
 import { processPosition } from '../../apps/desktop/universe/layout'
-import { coreFixture, processFixture } from './fixtures'
+import { coreFixture, processFixture, galaxyFixture } from './fixtures'
 
 beforeEach(() => {
   useCoreStore.getState().begin()
-  useCoreStore.getState().receive({ ...coreFixture, enabledCollectors: 1, intervalMs: 1000, processes: { ...coreFixture.processes, observedAtUnixMs: 1790000000000, rows: [processFixture] } }, 100, 1000)
+  useCoreStore.getState().receive({ ...coreFixture, enabledCollectors: 1, intervalMs: 1000, processes: { ...coreFixture.processes, observedAtUnixMs: 1790000000000, rows: [processFixture], galaxies: [galaxyFixture] } }, 100, 1000)
 })
 afterEach(cleanup)
 
@@ -32,7 +32,7 @@ it('searches names and PIDs and selects exact observed data', () => {
 it('preserves the selected last observation after a process disappears', () => {
   const store = useCoreStore.getState()
   store.select(processFixture.id)
-  store.receive({ ...store.frame!, sequence: '2', processes: { ...store.frame!.processes, rows: [] } }, 100, 2000)
+  store.receive({ ...store.frame!, sequence: '2', processes: { ...store.frame!.processes, rows: [], galaxies: [] } }, 100, 2000)
   render(<ProcessInspector />)
   expect(screen.getByTestId('process-status')).toHaveTextContent('No longer observed')
   expect(screen.getByTestId('process-pid')).toHaveTextContent('42')
@@ -40,7 +40,9 @@ it('preserves the selected last observation after a process disappears', () => {
 
 it('limits the process list DOM to 50 records per page', () => {
   const store = useCoreStore.getState()
-  store.receive({ ...store.frame!, sequence: '2', processes: { ...store.frame!.processes, rows: Array.from({ length: 120 }, (_, index) => ({ ...processFixture, id: `${index}:1`, pid: index, name: `fixture-${index}.exe` })) } }, 100, 2000)
+  const rows = Array.from({ length: 120 }, (_, index) => ({ ...processFixture, id: `${index}:1`, galaxyId: `g:${index}:1`, pid: index, name: `fixture-${index}.exe` }))
+  const galaxies = rows.map(row => ({ ...galaxyFixture, id: row.galaxyId, rootId: row.id, label: row.name }))
+  store.receive({ ...store.frame!, sequence: '2', processes: { ...store.frame!.processes, rows, galaxies } }, 100, 2000)
   render(<ProcessBrowser close={() => {}} />)
   expect(screen.getAllByRole('row')).toHaveLength(51)
   fireEvent.click(screen.getByRole('button', { name: 'Next processes' }))

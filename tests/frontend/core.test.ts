@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { coreFrameSchema, processSnapshotSchema } from '../../shared/protocol/core'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
-import { coreFixture as fixture, processFixture } from './fixtures'
+import { coreFixture as fixture, processFixture, galaxyFixture } from './fixtures'
 
 describe('native wire contract and latest-state store', () => {
   beforeEach(() => useCoreStore.getState().begin())
@@ -14,9 +14,15 @@ describe('native wire contract and latest-state store', () => {
     }
   })
   it('accepts null process measurements but rejects invalid CPU and duplicate identities', () => {
-    expect(processSnapshotSchema.safeParse({ ...fixture.processes, rows: [processFixture] }).success).toBe(true)
+    expect(processSnapshotSchema.safeParse({ ...fixture.processes, rows: [processFixture], galaxies: [galaxyFixture] }).success).toBe(true)
     expect(processSnapshotSchema.safeParse({ ...fixture.processes, rows: [{ ...processFixture, cpuPercent: 101 }] }).success).toBe(false)
     expect(processSnapshotSchema.safeParse({ ...fixture.processes, rows: [processFixture, processFixture] }).success).toBe(false)
+  })
+  it('rejects dangling parents, inconsistent membership and graph cycles', () => {
+    const valid = { ...fixture.processes, rows: [processFixture], galaxies: [galaxyFixture] }
+    expect(processSnapshotSchema.safeParse({ ...valid, rows: [{ ...processFixture, parentId: '99:1', parentStatus: 'verified', depth: 1 }] }).success).toBe(false)
+    expect(processSnapshotSchema.safeParse({ ...valid, galaxies: [{ ...galaxyFixture, processCount: 2 }] }).success).toBe(false)
+    expect(processSnapshotSchema.safeParse({ ...valid, rows: [{ ...processFixture, parentId: processFixture.id, parentStatus: 'verified', depth: 1 }] }).success).toBe(false)
   })
   it('ignores duplicate and reordered frames without extra updates', () => {
     const store = useCoreStore.getState()

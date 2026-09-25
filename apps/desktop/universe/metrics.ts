@@ -1,1 +1,1 @@
-export const renderMetrics = { frames: 0, drawCalls: 0, triangles: 0, submissionMs: 0, processInstances: 0 }
+export const renderMetrics = { frames: 0, drawCalls: 0, triangles: 0, submissionMs: 0, processInstances: 0, galaxyInstances: 0, parentLinks: 0 }

@@ -4,15 +4,15 @@ import { CameraControls } from '@react-three/drei'
 import type { Profile } from '../../../shared/protocol/core'
 import { renderMetrics } from './metrics'
 import { ProcessStars } from './ProcessStars'
-import { processPosition } from './layout'
+import { GalaxySystems, ParentLinks } from './GalaxySystems'
 import { useCoreStore } from '../src/state/core'
 
-const initialCamera: [number, number, number] = [14, 12, 18]
+const initialCamera: [number, number, number] = [48, 38, 60]
 
 function ReferenceGeometry() {
   return <group position={[0, -2, 0]}>
     <polarGridHelper args={[12, 12, 4, 128, '#4d665c', '#273333']} />
-    <gridHelper args={[80, 40, '#283538', '#141d20']} position={[0, -0.01, 0]} />
+    <gridHelper args={[160, 40, '#283538', '#141d20']} position={[0, -0.01, 0]} />
     <mesh rotation={[-Math.PI / 2, 0, 0]}>
       <ringGeometry args={[2.97, 3, 128]} />
       <meshBasicMaterial color="#9ec7a4" />
@@ -26,17 +26,31 @@ function ReferenceGeometry() {
 
 function Navigation({ reset }: { reset: number }) {
   const controls = useRef<CameraControls>(null)
+  const previousView = useRef('')
   const selectedId = useCoreStore(state => state.selected?.id)
+  const selectedGalaxyId = useCoreStore(state => state.selectedGalaxy?.id)
+  const selectedGalaxyRoot = useCoreStore(state => state.selectedGalaxy?.rootId)
+  const layout = useCoreStore(state => state.layout)
+  const mode = useCoreStore(state => state.viewMode)
+  const aspect = useThree(state => state.size.width / state.size.height)
   const focusRevision = useCoreStore(state => state.focusRevision)
   useEffect(() => {
-    if (reset > 0) void controls.current?.setLookAt(...initialCamera, 0, 0, 0, !matchMedia('(prefers-reduced-motion: reduce)').matches)
-  }, [reset])
-  useEffect(() => {
-    if (!selectedId) return
-    const [horizontal, vertical, depth] = processPosition(selectedId)
-    void controls.current?.setLookAt(horizontal + 4, vertical + 2, depth + 5, horizontal, vertical, depth, !matchMedia('(prefers-reduced-motion: reduce)').matches)
-  }, [selectedId, focusRevision])
-  return <CameraControls ref={controls} makeDefault minDistance={2} maxDistance={65} smoothTime={0.2} maxPolarAngle={Math.PI * 0.88} />
+    const transition = !matchMedia('(prefers-reduced-motion: reduce)').matches
+    const viewKey = `${mode}/${aspect}/${reset}`
+    const viewChanged = previousView.current !== viewKey
+    previousView.current = viewKey
+    const target = selectedId ? layout[mode].get(selectedId)
+      : selectedGalaxyId ? (mode === 'universe' ? layout.galaxyPositions.get(selectedGalaxyId) : layout.hierarchy.get(selectedGalaxyRoot ?? '')) : undefined
+    if (!target) {
+      if (!viewChanged) return
+      const scale = Math.max(1, 1.15 / aspect)
+      void controls.current?.setLookAt(initialCamera[0] * scale, initialCamera[1] * scale, initialCamera[2] * scale, 0, 0, 0, reset > 0 && transition)
+      return
+    }
+    const distance = selectedId ? 1 : Math.max(2, (layout.galaxyRadii.get(selectedGalaxyId!) ?? 2) * 0.65)
+    void controls.current?.setLookAt(target[0] + 4 * distance, target[1] + 2 * distance, target[2] + 5 * distance, ...target, transition)
+  }, [selectedId, selectedGalaxyId, selectedGalaxyRoot, focusRevision, layout, mode, aspect, reset])
+  return <CameraControls ref={controls} makeDefault minDistance={2} maxDistance={300} smoothTime={0.2} maxPolarAngle={Math.PI * 0.88} />
 }
 
 function RenderBudget({ profile, onFailure }: { profile: Profile; onFailure: () => void }) {
@@ -76,12 +90,14 @@ export const UniverseScene = memo(function UniverseScene({ profile, reset }: { p
   return <section className="universe-scene" aria-label="Universe navigation viewport">
     {lost ? <div className="renderer-fallback" role="alert"><h2>Graphics context lost</h2><button onClick={() => setLost(false)}>Retry renderer</button></div> :
       <Canvas key={profile === 'cinematic' ? 'cinematic' : 'efficient'} frameloop="demand" dpr={profile === 'cinematic' ? 2 : 1}
-        camera={{ position: initialCamera, fov: 48, near: 0.1, far: 160 }}
+        camera={{ position: initialCamera, fov: 48, near: 0.1, far: 600 }}
         gl={{ antialias: profile === 'cinematic', powerPreference: 'low-power', alpha: false }}
         fallback={<div className="renderer-fallback" role="alert">WebGL is unavailable. Native status remains available.</div>}>
         <color attach="background" args={['#090c0e']} />
-        <fog attach="fog" args={['#090c0e', 22, 72]} />
+        <fog attach="fog" args={['#090c0e', 120, 500]} />
         <ReferenceGeometry />
+        <GalaxySystems />
+        <ParentLinks />
         <ProcessStars />
         <Navigation reset={reset} />
         <RenderBudget profile={profile} onFailure={() => setLost(true)} />

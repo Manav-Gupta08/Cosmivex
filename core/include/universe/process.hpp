@@ -48,6 +48,7 @@ struct ProcessRow {
     std::optional<double> cpu_percent;
 };
 
+struct UniverseModel;
 struct ProcessSnapshot {
     std::vector<ProcessRow> processes;
     uint64_t observed_at_unix_ms = 0;
@@ -55,11 +56,13 @@ struct ProcessSnapshot {
     uint32_t error = 0;
     bool truncated = false;
     double duration_ms = 0;
+    std::shared_ptr<const UniverseModel> universe;
 };
 
 class ProcessTracker {
 public:
     ProcessSnapshot normalize(ProcessCollection collection);
+    void reset() noexcept { previous_.clear(); }
 private:
     struct Previous {
         std::optional<uint64_t> creation;

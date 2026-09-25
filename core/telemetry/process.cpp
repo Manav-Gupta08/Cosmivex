@@ -1,4 +1,5 @@
 #include "universe/process.hpp"
+#include "universe/model.hpp"
 #include <algorithm>
 #include <utility>
 
@@ -26,7 +27,7 @@ ProcessSnapshot ProcessTracker::normalize(ProcessCollection collection) {
         const auto found = previous_.find(observation.pid);
         const bool same = found != previous_.end()
             && found->second.creation == observation.creation_filetime
-            && found->second.name == observation.name;
+            && (observation.creation_filetime || found->second.name == observation.name);
         const auto generation = same ? found->second.generation : ++next_generation_;
         std::optional<double> cpu;
         if (same && observation.creation_filetime && observation.cpu_ticks && found->second.ticks
@@ -44,6 +45,7 @@ ProcessSnapshot ProcessTracker::normalize(ProcessCollection collection) {
     std::sort(snapshot.processes.begin(), snapshot.processes.end(), [](const auto& left, const auto& right) {
         return left.observation.pid < right.observation.pid;
     });
+    snapshot.universe = std::make_shared<UniverseModel>(build_universe(snapshot));
     return snapshot;
 }
 }

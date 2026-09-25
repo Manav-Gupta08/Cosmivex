@@ -9,13 +9,16 @@ $previousArgs = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $previousEndpoint = $env:UOS_TEST_ENDPOINT
 $previousTestPid = $env:UOS_TEST_PID
 $previousParentPid = $env:UOS_TEST_PARENT_PID
+$previousChildPid = $env:UOS_TEST_CHILD_PID
 $previousCpu = $env:UOS_TEST_CPU
 $previousMemory = $env:UOS_TEST_MEMORY_MIB
 $workload = $null
 $application = $null
 Push-Location $root
 try {
-    $workload = Start-Process -FilePath (Get-Command node).Source -ArgumentList (Join-Path $root 'tests/process-workload.mjs') -WindowStyle Hidden -PassThru
+    $null = [System.IO.Directory]::CreateDirectory((Join-Path $root 'artifacts'))
+    $workloadOutput = Join-Path $root 'artifacts/workload-reference.json'
+    $workload = Start-Process -FilePath (Get-Command node).Source -ArgumentList (Join-Path $root 'tests/process-workload.mjs') -RedirectStandardOutput $workloadOutput -WindowStyle Hidden -PassThru
     $env:UOS_TEST_PID = [string]$workload.Id
     $env:UOS_TEST_PARENT_PID = [string]$PID
     $workload.Refresh()
@@ -24,6 +27,7 @@ try {
     Get-Counter '\System\System Up Time' -SampleInterval 1 -MaxSamples 3 | Out-Null
     $workload.Refresh()
     $referenceCpu = ($workload.TotalProcessorTime.TotalSeconds - $startedCpu) / $referenceClock.Elapsed.TotalSeconds / [Environment]::ProcessorCount * 100
+    $env:UOS_TEST_CHILD_PID = [string](Get-Content $workloadOutput -Raw | ConvertFrom-Json).childPid
     $env:UOS_TEST_CPU = $referenceCpu.ToString([Globalization.CultureInfo]::InvariantCulture)
     $env:UOS_TEST_MEMORY_MIB = ($workload.WorkingSet64 / 1MB).ToString([Globalization.CultureInfo]::InvariantCulture)
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$Port --remote-debugging-address=127.0.0.1"
@@ -45,6 +49,7 @@ try {
     $env:UOS_TEST_ENDPOINT = $previousEndpoint
     $env:UOS_TEST_PID = $previousTestPid
     $env:UOS_TEST_PARENT_PID = $previousParentPid
+    $env:UOS_TEST_CHILD_PID = $previousChildPid
     $env:UOS_TEST_CPU = $previousCpu
     $env:UOS_TEST_MEMORY_MIB = $previousMemory
     if ($null -ne $workload) {

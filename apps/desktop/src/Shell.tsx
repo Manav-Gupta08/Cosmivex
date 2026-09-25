@@ -1,10 +1,11 @@
 import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
-import { Activity, Aperture, Box, Crosshair, Gauge, Leaf, List, Orbit, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { Activity, Aperture, Crosshair, Gauge, GitFork, Leaf, List, Orbit, RefreshCw, Search, ShieldCheck } from 'lucide-react'
 import { connectCore, setNativeProfile, setProcessCollection } from './transport'
 import { useCoreStore } from './state/core'
 import { Diagnostics } from './Diagnostics'
 import type { Profile } from '../../../shared/protocol/core'
 import { ProcessBrowser, ProcessInspector } from './Processes'
+import { GalaxyBrowser, GalaxyInspector } from './Galaxies'
 
 const UniverseScene = lazy(() => import('../universe/Scene').then(module => ({ default: module.UniverseScene })))
 
@@ -30,8 +31,11 @@ export default function Shell() {
   const error = useCoreStore(state => state.error)
   const query = useCoreStore(state => state.query)
   const focusRevision = useCoreStore(state => state.focusRevision)
+  const mode = useCoreStore(state => state.viewMode)
+  const selectedGalaxyId = useCoreStore(state => state.selectedGalaxy?.id)
   const [diagnostics, setDiagnostics] = useState(false)
   const [listOpen, setListOpen] = useState(false)
+  const [galaxiesOpen, setGalaxiesOpen] = useState(false)
   const [panelRevision, setPanelRevision] = useState(0)
   const [connectionAttempt, setConnectionAttempt] = useState(0)
   const [reset, setReset] = useState(0)
@@ -39,6 +43,7 @@ export default function Shell() {
   useEffect(() => connectCore(), [connectionAttempt])
   const showDiagnostics = diagnostics && panelRevision === focusRevision
   const showList = listOpen && panelRevision === focusRevision
+  const showGalaxies = galaxiesOpen && panelRevision === focusRevision
 
   async function changeProfile(profile: Profile) {
     setPending(true)
@@ -61,32 +66,35 @@ export default function Shell() {
   return <main className="app-shell">
     <RendererBoundary><Suspense fallback={<div className="renderer-fallback">Opening viewport</div>}><UniverseScene profile={frame?.profile ?? 'eco'} reset={reset} /></Suspense></RendererBoundary>
     <header className="topbar">
-      <div className="brand"><Orbit size={27} strokeWidth={1.2} /><h1>UNIVERSE OS</h1><span className="version">0.2</span></div>
+      <div className="brand"><Orbit size={27} strokeWidth={1.2} /><h1>UNIVERSE OS</h1><span className="version">0.3</span></div>
       <div className={`connection-status ${status}`} role="status" data-testid="connection-status"><span className="status-dot" />{status === 'connected' ? 'Native core connected' : status === 'disconnected' ? 'Browser preview' : status === 'connecting' ? 'Connecting' : 'Core unavailable'}</div>
       <div className="profiles" role="group" aria-label="Resource profile">
         {profiles.map(({ id, label, Icon }) => <button key={id} className={frame?.profile === id ? 'active' : ''} disabled={status !== 'connected' || pending} aria-pressed={frame?.profile === id} aria-label={`${label} profile`} title={`${label} profile`} onClick={() => void changeProfile(id)}><Icon size={15} /><span>{label}</span></button>)}
       </div>
     </header>
-    <div className="view-heading"><span className="eyebrow">LOCAL OBSERVATORY / 02</span><h2>Computer universe</h2><div className="view-state"><span className="thin-line" />{collectionState}</div></div>
+    <div className="view-heading"><span className="eyebrow">LOCAL OBSERVATORY / 03</span><h2>{mode === 'universe' ? 'Computer universe' : 'Process hierarchy'}</h2><div className="view-state"><span className="thin-line" />{collectionState}</div></div>
+    <div className="view-modes" role="group" aria-label="Spatial view"><button aria-label="Universe view" aria-pressed={mode === 'universe'} onClick={() => useCoreStore.getState().setViewMode('universe')}><Orbit size={14} /> Universe</button><button aria-label="Hierarchy view" aria-pressed={mode === 'hierarchy'} onClick={() => useCoreStore.getState().setViewMode('hierarchy')}><GitFork size={14} /> Hierarchy</button></div>
     <form className="process-search" role="search" onSubmit={event => {
       event.preventDefault()
       const id = useCoreStore.getState().processIds[0]
       if (id) { useCoreStore.getState().select(id); useCoreStore.getState().setQuery(''); setListOpen(false) }
-    }}><Search size={15} /><input aria-label="Search processes" placeholder="Process name or PID" value={query} onChange={event => { useCoreStore.getState().setQuery(event.target.value); setListOpen(true); setDiagnostics(false); setPanelRevision(focusRevision) }} /><button className="icon-button" aria-label="Search and focus" title="Search and focus" type="submit"><Crosshair size={15} /></button></form>
+    }}><Search size={15} /><input aria-label="Search processes" placeholder="Process name or PID" value={query} onChange={event => { useCoreStore.getState().setQuery(event.target.value); setListOpen(true); setGalaxiesOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }} /><button className="icon-button" aria-label="Search and focus" title="Search and focus" type="submit"><Crosshair size={15} /></button></form>
     <nav className="view-tools" aria-label="Universe tools">
-      <span className="icon-button selected" role="img" aria-label="Universe view" title="Universe view"><Box size={19} /></span>
+      <button className={`icon-button ${showGalaxies ? 'selected' : ''}`} aria-label="Galaxy list" title="Galaxy list" aria-expanded={showGalaxies} onClick={() => { setGalaxiesOpen(!showGalaxies); setListOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><Orbit size={19} /></button>
+      <button className={`icon-button ${showList ? 'selected' : ''}`} aria-label="Process list" title="Process list" aria-expanded={showList} onClick={() => { setListOpen(!showList); setGalaxiesOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><List size={19} /></button>
       <span className="tool-divider" />
-      <button className={`icon-button ${showList ? 'selected' : ''}`} aria-label="Process list" title="Process list" aria-expanded={showList} onClick={() => { setListOpen(!showList); setDiagnostics(false); setPanelRevision(focusRevision) }}><List size={19} /></button>
-      <button className="icon-button" aria-label="Reset camera" title="Reset camera" onClick={() => setReset(value => value + 1)}><Crosshair size={19} /></button>
-      <button className={`icon-button ${showDiagnostics ? 'selected' : ''}`} aria-label="Engine diagnostics" title="Engine diagnostics" aria-expanded={showDiagnostics} onClick={() => { setDiagnostics(!showDiagnostics); setListOpen(false); setPanelRevision(focusRevision) }}><Activity size={19} /></button>
+      <button className="icon-button" aria-label="Reset camera" title="Reset camera" onClick={() => { useCoreStore.getState().select(null); setReset(value => value + 1) }}><Crosshair size={19} /></button>
+      <button className={`icon-button ${showDiagnostics ? 'selected' : ''}`} aria-label="Engine diagnostics" title="Engine diagnostics" aria-expanded={showDiagnostics} onClick={() => { setDiagnostics(!showDiagnostics); setListOpen(false); setGalaxiesOpen(false); setPanelRevision(focusRevision) }}><Activity size={19} /></button>
     </nav>
     <div className="origin-label" aria-hidden="true"><span>ORIGIN</span><span>00 / 00 / 00</span></div>
     {showDiagnostics && <Diagnostics close={() => setDiagnostics(false)} />}
-    {showList && <ProcessBrowser close={() => setListOpen(false)} />}
-    {!showDiagnostics && !showList && <ProcessInspector />}
+    {showList && <ProcessBrowser key={mode} close={() => setListOpen(false)} />}
+    {showGalaxies && <GalaxyBrowser close={() => setGalaxiesOpen(false)} />}
+    {!showDiagnostics && !showList && !showGalaxies && <><ProcessInspector /><GalaxyInspector key={selectedGalaxyId} /></>}
     {error && <div className="connection-notice" role="alert"><span>{error}</span>{status !== 'disconnected' && <button className="icon-button" aria-label="Reconnect core" title="Reconnect core" onClick={() => setConnectionAttempt(value => value + 1)}><RefreshCw size={17} /></button>}</div>}
     <footer className="statusbar">
       <div><span className="footer-label">OBSERVED PROCESSES</span><strong data-testid="process-count">{frame?.processes.rows.length ?? 0}</strong></div>
+      <div className="galaxy-count"><span className="footer-label">GALAXIES</span><strong data-testid="galaxy-count">{frame?.processes.galaxies.length ?? 0}</strong></div>
       <label className="collection-toggle"><input type="checkbox" aria-label="Process collection" checked={frame?.enabledCollectors === 1} disabled={status !== 'connected' || pending} onChange={event => void toggleCollection(event.target.checked)} /><span>Process collection</span></label>
       <div className="privacy"><ShieldCheck size={14} /><span>Read-only</span><span className="footer-divider">/</span><span>History off</span></div>
     </footer>
