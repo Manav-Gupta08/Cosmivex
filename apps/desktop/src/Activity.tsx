@@ -6,6 +6,7 @@ import type { ProcessEvent } from '../../../shared/protocol/stream'
 const labels: Record<ProcessEvent['kind'], string> = {
   BASELINE: 'Observation baseline', PROCESS_CREATED: 'First observed', PROCESS_TERMINATED: 'No longer observed',
   PROCESS_UPDATED: 'Observation updated', EVENT_GAP: 'Observation gap', COLLECTION_PAUSED: 'Collection paused',
+  RESOURCE_SPIKE: 'Sustained CPU spike',
 }
 
 export function Activity({ close }: { close: () => void }) {
@@ -24,6 +25,7 @@ export function Activity({ close }: { close: () => void }) {
     <ol className="event-list">{filtered.slice(currentPage * 25, (currentPage + 1) * 25).map(event => <li key={event.sequence} data-kind={event.kind} data-pid={event.pid}>
       <time title={event.previousObservedAtUnixMs ? `Observed between ${new Date(event.previousObservedAtUnixMs).toLocaleString()} and ${new Date(event.observedAtUnixMs).toLocaleString()}` : new Date(event.observedAtUnixMs).toLocaleString()}>{new Date(event.observedAtUnixMs).toLocaleTimeString()}</time>
       <span>{labels[event.kind]}</span>
+      {event.kind === 'RESOURCE_SPIKE' && <small>{event.resourceValue?.toFixed(2)}% CPU / {event.resourceThreshold}% threshold</small>}
       {event.processId ? <button disabled={!currentIds.has(event.processId)} title={`${event.name} / PID ${event.pid}`} onClick={() => useCoreStore.getState().select(event.processId)}>{event.name} <span>{event.pid}</span></button> : <small>{event.reason}</small>}
     </li>)}</ol>
     {!filtered.length && <p className="empty-results">No recent lifecycle observations.</p>}

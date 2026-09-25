@@ -57,7 +57,7 @@ export function connectCore(): () => void {
   }
   subscriptionQueue = subscriptionQueue.then(async () => {
       if (disposed) return
-      const id = await invoke<number>('subscribe_core', { protocolVersion: 4, onFrame: channel })
+      const id = await invoke<number>('subscribe_core', { protocolVersion: 5, onFrame: channel })
       subscriptionId = id
       if (disposed) await invoke('unsubscribe_core', { subscriptionId: id })
     })

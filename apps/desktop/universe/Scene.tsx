@@ -35,6 +35,7 @@ function Navigation({ reset }: { reset: number }) {
   const mode = useCoreStore(state => state.viewMode)
   const aspect = useThree(state => state.size.width / state.size.height)
   const focusRevision = useCoreStore(state => state.focusRevision)
+  useEffect(() => () => { renderMetrics.cameraMoving = false }, [])
   useEffect(() => {
     const transition = !matchMedia('(prefers-reduced-motion: reduce)').matches
     const viewKey = `${mode}/${aspect}/${reset}`
@@ -51,7 +52,8 @@ function Navigation({ reset }: { reset: number }) {
     const distance = selectedId ? 1 : Math.max(2, (layout.galaxyRadii.get(selectedGalaxyId!) ?? 2) * 0.65)
     void controls.current?.setLookAt(target[0] + 4 * distance, target[1] + 2 * distance, target[2] + 5 * distance, ...target, transition)
   }, [selectedId, selectedGalaxyId, selectedGalaxyRoot, focusRevision, layout, mode, aspect, reset])
-  return <CameraControls ref={controls} makeDefault minDistance={2} maxDistance={300} smoothTime={0.2} maxPolarAngle={Math.PI * 0.88} />
+  return <CameraControls ref={controls} makeDefault minDistance={2} maxDistance={300} smoothTime={0.2} maxPolarAngle={Math.PI * 0.88}
+    onWake={() => { renderMetrics.cameraMoving = true }} onSleep={() => { renderMetrics.cameraMoving = false }} />
 }
 
 function RenderBudget({ profile, onFailure }: { profile: Profile; onFailure: () => void }) {

@@ -44,6 +44,13 @@ struct ChangeRow {
     generation: u64,
 }
 
+#[repr(C)]
+#[derive(Default)]
+struct ResourceEvent {
+    value: f64,
+    threshold: f64,
+}
+
 extern "C" {
     fn uos_event_info_read(snapshot: *mut c_void, output: *mut EventInfo, size: u32) -> i32;
     fn uos_event_row_read(
@@ -57,6 +64,12 @@ extern "C" {
     fn uos_delta_row_read(delta: *mut c_void, index: u32, output: *mut ChangeRow, size: u32)
         -> i32;
     fn uos_delta_release(delta: *mut c_void);
+    fn uos_resource_event_read(
+        snapshot: *mut c_void,
+        index: u32,
+        output: *mut ResourceEvent,
+        size: u32,
+    ) -> i32;
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -71,6 +84,8 @@ pub struct ProcessEvent {
     pub kind: &'static str,
     pub reason: &'static str,
     pub name: String,
+    pub resource_value: Option<f64>,
+    pub resource_threshold: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -108,6 +123,7 @@ pub fn events(snapshot: *mut c_void) -> Result<Events, String> {
             3 => "PROCESS_UPDATED",
             4 => "EVENT_GAP",
             5 => "COLLECTION_PAUSED",
+            6 => "RESOURCE_SPIKE",
             _ => return Err("Unknown native event kind".into()),
         };
         let reason = match row.reason {
@@ -116,6 +132,7 @@ pub fn events(snapshot: *mut c_void) -> Result<Events, String> {
             2 => "metadata",
             3 => "incomplete",
             4 => "configuration",
+            5 => "cpu-sustained",
             _ => return Err("Unknown native event reason".into()),
         };
         let name = std::str::from_utf8(unsafe {
@@ -123,6 +140,30 @@ pub fn events(snapshot: *mut c_void) -> Result<Events, String> {
         })
         .map_err(|_| "Invalid event name encoding")?
         .to_owned();
+        let resource = if row.kind == 6 {
+            let mut resource = ResourceEvent::default();
+            if unsafe {
+                uos_resource_event_read(
+                    snapshot,
+                    index,
+                    &mut resource,
+                    size_of::<ResourceEvent>() as u32,
+                )
+            } != 1
+                || !resource.value.is_finite()
+                || !resource.threshold.is_finite()
+                || !(0.0..=100.0).contains(&resource.value)
+                || !(0.0..=100.0).contains(&resource.threshold)
+                || resource.value < resource.threshold
+                || row.reason != 5
+                || row.generation == 0
+            {
+                return Err("Invalid measured resource event".into());
+            }
+            Some(resource)
+        } else {
+            None
+        };
         rows.push(ProcessEvent {
             sequence: row.sequence.to_string(),
             observed_at_unix_ms: row.observed_at_unix_ms,
@@ -133,6 +174,8 @@ pub fn events(snapshot: *mut c_void) -> Result<Events, String> {
             kind,
             reason,
             name,
+            resource_value: resource.as_ref().map(|value| value.value),
+            resource_threshold: resource.as_ref().map(|value| value.threshold),
         });
     }
     Ok(Events {

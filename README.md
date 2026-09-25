@@ -5,7 +5,7 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 4 is implemented and verified in the actual Windows application. Real
+Phase 5 is implemented and functionally verified in the actual Windows application. Real
 Windows processes appear as instanced stars in selectable, inferred galaxies.
 Switch between the galaxy universe and process hierarchy, search by name/PID,
 inspect processes or groups, and navigate validated parent links. Relationships,
@@ -13,6 +13,9 @@ membership, CPU and working-set measurements come from C++, not the renderer.
 Native lifecycle observations now feed a bounded recent-activity journal and
 chunked delta stream. The UI can resynchronize without applying partial graphs;
 process appearances/disappearances have restrained, profile-aware markers.
+Observed CPU now drives star brightness and working-set memory drives bounded
+star size. Sustained CPU spikes have measured values and restrained markers.
+Exact readouts remain unchanged; performance qualification still has open concerns.
 
 Process metadata collection is enabled by default and can be switched off in the
 bottom bar. Missing CPU/memory values remain unavailable; an exited selection
@@ -20,13 +23,14 @@ retains its last observation with an explicit status. No synthetic process data
 is supplied to the application. Grouping is conservative: only connected processes
 with validated ancestry and identical observed executable paths share a galaxy.
 It is not an OS application registry; cross-image helpers can remain separate.
-Network, filesystem, SQLite recording, replay, LOD benchmarks, and resource-driven effects remain
+Network, filesystem, SQLite recording, replay, and large-count LOD benchmarks remain
 later phases. The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 4 verification](docs/phase-4.md) for current results and open limits;
+See [Phase 5 verification](docs/phase-5.md) for current results and open concerns;
+[Phase 4 verification](docs/phase-4.md) preserves the streaming/lifecycle baseline;
 [Phase 3 verification](docs/phase-3.md) preserves the hierarchy/grouping baseline;
 [Phase 2 verification](docs/phase-2.md) preserves the process-telemetry baseline and
 [Phase 1 verification](docs/phase-1.md) preserves the foundation baseline.
@@ -99,6 +103,15 @@ The verifier also pauses WebView JavaScript with CDP while a separate short-live
 test process appears and exits. It resumes the renderer and verifies that native
 collection continued and the lifecycle observations were retained. Debugging is
 enabled only for this verification child, never an ordinary application launch.
+The resource probe separately ramps real CPU and allocated memory, measures the
+selected star's pixel brightness/area, checks a sustained spike, and verifies
+the resource-visual toggle. It is bounded to 90 seconds and affects only its own
+test process. Worker count is capped at eight and allocation at 384 MiB.
+
+For investigating WebView CPU, `node tests/profile-resources.mjs` starts its own
+release app with loopback CDP on port 9224, captures 15-second CPU profiles with
+resource visuals on/off, and writes profiles to `artifacts/`. It rejects an occupied
+port. This is a diagnostic run, not the uninstrumented release overhead benchmark.
 
 Screenshots and measured samples are generated under ignored `artifacts/`.
 The icon sources are generated locally by `scripts/generate-icon.ps1`; generated
@@ -125,7 +138,16 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - Cinematic: 1 s wait between collections, 60 fps draw ceiling, pixel ratio 2, MSAA.
 - With collection off, Normal/Cinematic publish health only every 2 s.
 - All modes stop drawing at rest and suspend the render loop while hidden. An idle
-  scene correctly reports no new frames. Diagnostic refresh runs only while open.
+  scene with unchanged visual levels reports no new frames. Changed resource levels
+  request draws at the telemetry cadence, not a continuous loop. Diagnostic refresh
+  runs only while open; camera motion is reported separately from data-driven draws.
+- CPU energy uses a square-root scale; memory uses a logarithmic scale capped
+  visually at 4 GiB. Native levels are quantized to 0-31 with hysteresis. Exact
+  CPU and working set remain visible even beyond a visual cap. Unknown CPU uses
+  a neutral color, and unknown memory a neutral-size wireframe, not a zero reading.
+- The Resource visuals checkbox in diagnostics disables the mapping without
+  disabling collection or changing measurements. GPU matrix/color ranges update
+  only where appearance changed; topology layout remains independent of metrics.
 - Recent activity retains at most 256 observed events in memory and shows 25 per
   page. "First observed" / "No longer observed" are sampling statements, not exact
   OS lifecycle timestamps or crash diagnoses. Startup/recovery uses a baseline;
@@ -133,14 +155,18 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - Normal mode uses short demand-rendered lifecycle markers. Cinematic animates
   pulses for at most 900 ms; Eco and reduced-motion settings suppress them. At most
   32 effects can exist at once. Old/replayed events do not create fresh effects.
+- Sustained CPU spikes require two consecutive samples at >=10% of total machine
+  CPU, rearm below or at 6%, and a 30-second cooldown. This is an explicit monitor
+  policy, not a crash or health diagnosis. Recent activity shows value and threshold.
 - Quality switches into/out of Cinematic recreate the canvas and currently reset
-  the camera. CPU/memory visual scaling and effects remain a later phase.
+  the camera. Resource levels themselves do not require continuous interpolation.
 - One immutable latest process snapshot and one acknowledged channel chunk prevent
   event backlog. The snapshot includes the matching native hierarchy and groups.
-  C++ computes deltas against the last fully acknowledged state. Protocol 4 uses
+  C++ computes deltas against the last fully acknowledged state. Protocol 5 uses
   256 KiB UTF-8-safe payload chunks (under 1 MiB encoded per message), a 16 MiB
   serialization/reassembly limit, atomic application and wrong-base resync.
-  Metric-only updates reuse layouts and GPU matrices; parent links use a batched
+  Metric updates reuse layouts; unchanged visual levels reuse GPU matrices/colors.
+  Changed levels upload merged instance ranges. Parent links use a batched
   geometry, and galaxies/processes use instancing. Native collection happens
   outside the shared-state lock. Successful image queries are lifetime-cached.
 - CPU uses 0-100% of total logical processor capacity; working set is not private

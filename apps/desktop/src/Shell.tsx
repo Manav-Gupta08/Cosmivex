@@ -69,13 +69,13 @@ export default function Shell() {
   return <main className="app-shell">
     <RendererBoundary><Suspense fallback={<div className="renderer-fallback">Opening viewport</div>}><UniverseScene profile={frame?.profile ?? 'eco'} reset={reset} /></Suspense></RendererBoundary>
     <header className="topbar">
-      <div className="brand"><Orbit size={27} strokeWidth={1.2} /><h1>UNIVERSE OS</h1><span className="version">0.4</span></div>
+      <div className="brand"><Orbit size={27} strokeWidth={1.2} /><h1>UNIVERSE OS</h1><span className="version">0.5</span></div>
       <div className={`connection-status ${status}`} role="status" data-testid="connection-status"><span className="status-dot" />{status === 'connected' ? 'Native core connected' : status === 'disconnected' ? 'Browser preview' : status === 'connecting' ? 'Connecting' : 'Core unavailable'}</div>
       <div className="profiles" role="group" aria-label="Resource profile">
         {profiles.map(({ id, label, Icon }) => <button key={id} className={frame?.profile === id ? 'active' : ''} disabled={status !== 'connected' || pending} aria-pressed={frame?.profile === id} aria-label={`${label} profile`} title={`${label} profile`} onClick={() => void changeProfile(id)}><Icon size={15} /><span>{label}</span></button>)}
       </div>
     </header>
-    <div className="view-heading"><span className="eyebrow">LOCAL OBSERVATORY / 04</span><h2>{mode === 'universe' ? 'Computer universe' : 'Process hierarchy'}</h2><div className="view-state"><span className="thin-line" />{collectionState}</div></div>
+    <div className="view-heading"><span className="eyebrow">LOCAL OBSERVATORY / 05</span><h2>{mode === 'universe' ? 'Computer universe' : 'Process hierarchy'}</h2><div className="view-state"><span className="thin-line" />{collectionState}</div></div>
     <div className="view-modes" role="group" aria-label="Spatial view"><button aria-label="Universe view" aria-pressed={mode === 'universe'} onClick={() => useCoreStore.getState().setViewMode('universe')}><Orbit size={14} /> Universe</button><button aria-label="Hierarchy view" aria-pressed={mode === 'hierarchy'} onClick={() => useCoreStore.getState().setViewMode('hierarchy')}><GitFork size={14} /> Hierarchy</button></div>
     <form className="process-search" role="search" onSubmit={event => {
       event.preventDefault()

@@ -20,7 +20,7 @@ it('rejects out-of-order, mismatched and oversized transfers', () => {
 it('applies exact native upserts/removals and validates the resulting graph', () => {
   const initial = applyPacket(null, packetFixture({ ...coreFixture, processes: { ...coreFixture.processes, rows: [processFixture], galaxies: [galaxyFixture] } }))
   const delta = packetSchema.parse({ ...packetFixture(), kind: 'delta', baseSequence: '1', sequence: '2',
-    processes: { ...coreFixture.processes, rows: [{ ...processFixture, cpuPercent: 5 }], galaxies: [{ ...galaxyFixture, cpuSampleCount: 1, cpuPercent: 5 }], removed: [], removedGalaxies: [] },
+    processes: { ...coreFixture.processes, rows: [{ ...processFixture, cpuPercent: 5, cpuLevel: 7 }], galaxies: [{ ...galaxyFixture, cpuSampleCount: 1, cpuPercent: 5 }], removed: [], removedGalaxies: [] },
   })
   const next = applyPacket(initial, delta)
   expect(next.processes.rows[0].cpuPercent).toBe(5)

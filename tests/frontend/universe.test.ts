@@ -19,7 +19,7 @@ it('lays out only observed processes and keeps members near their native galaxy'
 
 it('reuses layout on metric-only updates but rebuilds on relationships changing', () => {
   const layout = buildLayout(snapshot)
-  expect(buildLayout({ ...snapshot, rows: [{ ...processFixture, cpuPercent: 4 }, child] }, layout)).toBe(layout)
+  expect(buildLayout({ ...snapshot, rows: [{ ...processFixture, cpuPercent: 4, cpuLevel: 6 }, child] }, layout)).toBe(layout)
   expect(buildLayout({ ...snapshot, rows: [processFixture, { ...child, parentId: null, depth: 0 }] }, layout)).not.toBe(layout)
 })
 

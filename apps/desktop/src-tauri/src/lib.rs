@@ -17,7 +17,7 @@ async fn subscribe_core(
     on_frame: Channel<Frame>,
     protocol_version: u32,
 ) -> Result<u32, String> {
-    if protocol_version != 4 {
+    if protocol_version != 5 {
         return Err("Unsupported UI protocol version".into());
     }
     state.0.as_ref().map_err(Clone::clone)?.subscribe(on_frame)

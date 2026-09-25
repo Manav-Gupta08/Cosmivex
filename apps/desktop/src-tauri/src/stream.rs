@@ -134,7 +134,7 @@ pub fn encode(
         0
     };
     let body = Packet {
-        protocol_version: 4,
+        protocol_version: 5,
         subscription_id: subscription,
         kind: if full { "snapshot" } else { "delta" },
         sequence: &current.sequence,
@@ -223,7 +223,7 @@ impl Transfer {
     pub fn frame(&self, subscription: u32) -> Frame {
         let (start, end) = self.ranges[self.index];
         Frame::Chunk {
-            protocol_version: 4,
+            protocol_version: 5,
             subscription_id: subscription,
             transfer_id: self.id.to_string(),
             chunk_index: self.index,

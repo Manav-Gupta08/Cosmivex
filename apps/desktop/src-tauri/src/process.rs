@@ -34,6 +34,13 @@ struct NativeRow {
     reserved: u32,
 }
 
+#[repr(C)]
+#[derive(Default)]
+struct NativeResourceVisual {
+    cpu_level: i32,
+    memory_level: i32,
+}
+
 extern "C" {
     fn uos_acquire_processes(engine: *mut c_void, sequence: u64, output: *mut *mut c_void) -> i32;
     fn uos_process_info_read(snapshot: *mut c_void, output: *mut NativeInfo, size: u32) -> i32;
@@ -44,6 +51,12 @@ extern "C" {
         size: u32,
     ) -> i32;
     fn uos_release_processes(snapshot: *mut c_void);
+    fn uos_resource_visual_read(
+        snapshot: *mut c_void,
+        index: u32,
+        output: *mut NativeResourceVisual,
+        size: u32,
+    ) -> i32;
 }
 
 #[derive(Debug)]
@@ -74,6 +87,8 @@ pub struct Process {
     pub working_set_bytes: Option<String>,
     pub timing_error: u32,
     pub memory_error: u32,
+    pub cpu_level: Option<u32>,
+    pub memory_level: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -138,6 +153,22 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
         if cpu.is_some_and(|value| !value.is_finite() || !(0.0..=100.0).contains(&value)) {
             return Err("Invalid native process CPU sample".into());
         }
+        let mut visual = NativeResourceVisual::default();
+        if unsafe {
+            uos_resource_visual_read(
+                handle.0.as_ptr(),
+                index,
+                &mut visual,
+                size_of::<NativeResourceVisual>() as u32,
+            )
+        } != 1
+            || !(-1..=31).contains(&visual.cpu_level)
+            || !(-1..=31).contains(&visual.memory_level)
+            || cpu.is_some() != (visual.cpu_level >= 0)
+            || (row.available & 4 != 0) != (visual.memory_level >= 0)
+        {
+            return Err("Invalid native resource mapping".into());
+        }
         rows.push(Process {
             id: format!("{}:{}", row.pid, row.generation),
             pid: row.pid,
@@ -160,6 +191,8 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
             working_set_bytes: (row.available & 4 != 0).then(|| row.working_set_bytes.to_string()),
             timing_error: row.timing_error,
             memory_error: row.memory_error,
+            cpu_level: (visual.cpu_level >= 0).then_some(visual.cpu_level as u32),
+            memory_level: (visual.memory_level >= 0).then_some(visual.memory_level as u32),
         });
     }
     let (galaxies, model_build_ms) = universe::read(handle.0.as_ptr(), &mut rows)?;
@@ -187,6 +220,7 @@ mod tests {
     fn real_processes_cross_snapshot_abi() {
         assert_eq!(size_of::<NativeInfo>(), 40);
         assert_eq!(size_of::<NativeRow>(), 72);
+        assert_eq!(size_of::<NativeResourceVisual>(), 8);
         let engine = Engine::new().unwrap();
         engine.set_process_collection(true).unwrap();
         let mut after = 0;
@@ -201,6 +235,8 @@ mod tests {
                     .find(|process| process.pid == std::process::id())
                 {
                     assert!(process.working_set_bytes.is_some());
+                    assert!(process.memory_level.is_some_and(|level| level <= 31));
+                    assert_eq!(process.cpu_level.is_some(), process.cpu_percent.is_some());
                     assert!(process.creation_filetime.is_some());
                     assert_eq!(health.processes.error, 0);
                     let group = health

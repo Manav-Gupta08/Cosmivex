@@ -9,9 +9,12 @@ const safeTime = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 export const eventSchema = z.strictObject({
   sequence: positiveSequence, observedAtUnixMs: safeTime, previousObservedAtUnixMs: safeTime,
   monotonicNs: unsigned64, processId: processId.nullable(), pid: z.number().int().nonnegative().max(0xffffffff),
-  kind: z.enum(['BASELINE', 'PROCESS_CREATED', 'PROCESS_TERMINATED', 'PROCESS_UPDATED', 'EVENT_GAP', 'COLLECTION_PAUSED']),
-  reason: z.enum(['observation', 'identity', 'metadata', 'incomplete', 'configuration']), name: z.string().max(1040),
-}).refine(event => event.processId === null ? !event.kind.startsWith('PROCESS_') : event.processId.startsWith(`${event.pid}:`))
+  kind: z.enum(['BASELINE', 'PROCESS_CREATED', 'PROCESS_TERMINATED', 'PROCESS_UPDATED', 'EVENT_GAP', 'COLLECTION_PAUSED', 'RESOURCE_SPIKE']),
+  reason: z.enum(['observation', 'identity', 'metadata', 'incomplete', 'configuration', 'cpu-sustained']), name: z.string().max(1040),
+  resourceValue: z.number().min(0).max(100).nullable(), resourceThreshold: z.number().min(0).max(100).nullable(),
+}).refine(event => (event.processId === null ? !event.kind.startsWith('PROCESS_') && event.kind !== 'RESOURCE_SPIKE' : event.processId.startsWith(`${event.pid}:`))
+  && (event.kind === 'RESOURCE_SPIKE' ? event.reason === 'cpu-sustained' && event.resourceValue !== null && event.resourceThreshold !== null && event.resourceValue >= event.resourceThreshold
+    : event.resourceValue === null && event.resourceThreshold === null))
 export type ProcessEvent = z.infer<typeof eventSchema>
 
 export const packetSchema = z.strictObject({
@@ -26,10 +29,10 @@ export const packetSchema = z.strictObject({
 export type CorePacket = z.infer<typeof packetSchema>
 
 export const wireSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('chunk'), protocolVersion: z.literal(4), subscriptionId: z.number().int().positive().max(0xffffffff),
+  z.strictObject({ kind: z.literal('chunk'), protocolVersion: z.literal(5), subscriptionId: z.number().int().positive().max(0xffffffff),
     transferId: positiveSequence, chunkIndex: z.number().int().min(0).max(127), chunkCount: z.number().int().min(1).max(128),
     totalBytes: z.number().int().min(1).max(TRANSFER_BYTES), payload: z.string().min(1).max(CHUNK_BYTES) }),
-  z.strictObject({ kind: z.literal('error'), protocolVersion: z.literal(4), subscriptionId: z.number().int().positive().max(0xffffffff), message: z.string().max(1024) }),
+  z.strictObject({ kind: z.literal('error'), protocolVersion: z.literal(5), subscriptionId: z.number().int().positive().max(0xffffffff), message: z.string().max(1024) }),
 ])
 export type WireChunk = Extract<z.infer<typeof wireSchema>, { kind: 'chunk' }>
 

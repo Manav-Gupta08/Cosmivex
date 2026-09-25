@@ -13,6 +13,7 @@ export function Diagnostics({ close }: { close: () => void }) {
   const changedRows = useCoreStore(state => state.changedRows)
   const cursor = useCoreStore(state => state.eventCursor)
   const evictions = useCoreStore(state => state.evictedEvents)
+  const resourceVisuals = useCoreStore(state => state.resourceVisuals)
   const [metrics, setMetrics] = useState({ fps: 0, bytesPerSecond: 0, ...renderMetrics })
   useEffect(() => {
     let previousTime = performance.now()
@@ -41,6 +42,7 @@ export function Diagnostics({ close }: { close: () => void }) {
     </dl></div>
     <div className="panel-section"><h3>Renderer & transport</h3><dl>
       <dt>Render cadence</dt><dd>{metrics.fps < 0.5 ? 'Idle' : `${metrics.fps.toFixed(0)} fps`}</dd>
+      <dt>Camera motion</dt><dd data-testid="camera-motion">{metrics.cameraMoving ? 'Moving' : 'Still'}</dd>
       <dt>Frames rendered</dt><dd data-testid="frames-rendered">{metrics.frames}</dd>
       <dt>Last draw calls</dt><dd>{metrics.drawCalls}</dd>
       <dt>CPU submission</dt><dd>{metrics.frames ? `${metrics.submissionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
@@ -56,6 +58,9 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>Event cursor</dt><dd data-testid="event-cursor">{cursor}</dd>
       <dt>Journal evictions</dt><dd>{evictions}</dd>
       <dt>Lifecycle effects</dt><dd>{metrics.lifecycleEffects}</dd>
+      <dt>Unknown-memory stars</dt><dd>{metrics.unknownMemoryInstances}</dd>
+      <dt>Instance matrix edits</dt><dd data-testid="matrix-edits">{metrics.resourceMatrixEdits}</dd>
+      <dt>Instance color edits</dt><dd data-testid="color-edits">{metrics.resourceColorEdits}</dd>
       <dt>Collector duration</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.collectionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Model build</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.modelBuildMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Logical processors</dt><dd>{frame?.processes.observedAtUnixMs ? frame.processes.logicalCpus : 'Unavailable'}</dd>
@@ -63,6 +68,7 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>Memory</dt><dd>Not measured</dd>
     </dl></div>
     <button className="focus-process" disabled={status !== 'connected'} onClick={() => { void resyncCore().catch((error: unknown) => useCoreStore.getState().fail(String(error))) }}><RefreshCw size={15} /> Resync stream</button>
+    <label className="activity-filter"><input type="checkbox" aria-label="Resource visuals" checked={resourceVisuals} onChange={event => useCoreStore.getState().setResourceVisuals(event.target.checked)} /> Resource visuals</label>
     <div className="panel-section"><h3>Collection permissions</h3><p>Standard user. {frame?.enabledCollectors ? 'Process metadata only.' : 'Collection off.'} History off.</p></div>
   </aside>
 }

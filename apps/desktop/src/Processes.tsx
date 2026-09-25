@@ -66,6 +66,8 @@ export function ProcessInspector() {
       <dt>Hierarchy depth</dt><dd>{process.depth}</dd>
       <dt>CPU / machine</dt><dd data-testid="process-cpu">{process.cpuPercent === null ? 'Unavailable' : `${process.cpuPercent.toFixed(2)}%`}</dd>
       <dt>Working set</dt><dd data-testid="process-memory">{formatMemory(process.workingSetBytes)}</dd>
+      <dt>CPU energy level</dt><dd data-testid="cpu-level">{process.cpuLevel === null ? 'Unavailable' : `${process.cpuLevel} / 31`}</dd>
+      <dt>Memory size level</dt><dd data-testid="memory-level">{process.memoryLevel === null ? 'Unavailable' : `${process.memoryLevel} / 31`}</dd>
       <dt>Thread count</dt><dd>{process.threadCount}</dd>
       <dt>Created</dt><dd>{process.createdAtUnixMs === null ? 'Unavailable' : new Date(process.createdAtUnixMs).toLocaleString()}</dd>
       <dt>Identity</dt><dd>{process.creationFiletime === null ? 'Observation only' : 'Creation verified'}</dd>

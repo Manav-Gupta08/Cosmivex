@@ -22,9 +22,13 @@ export const processSchema = z.strictObject({
   createdAtUnixMs: unsignedSafeInteger.nullable(),
   cpuPercent: z.number().min(0).max(100).nullable(),
   workingSetBytes: unsigned64.nullable(),
+  cpuLevel: z.number().int().min(0).max(31).nullable(),
+  memoryLevel: z.number().int().min(0).max(31).nullable(),
   timingError: unsigned32,
   memoryError: unsigned32,
-}).refine(process => process.id.startsWith(`${process.pid}:`))
+}).refine(process => process.id.startsWith(`${process.pid}:`)
+  && (process.cpuPercent === null) === (process.cpuLevel === null)
+  && (process.workingSetBytes === null) === (process.memoryLevel === null))
 export type ProcessRecord = z.infer<typeof processSchema>
 
 export const galaxySchema = z.strictObject({
@@ -68,7 +72,7 @@ export type ProcessSnapshot = z.infer<typeof processSnapshotSchema>
 
 export const coreFrameSchema = z.strictObject({
   subscriptionId: z.number().int().positive().max(0xffffffff),
-  protocolVersion: z.literal(4),
+  protocolVersion: z.literal(5),
   abiVersion: z.literal(1),
   sequence: z.string().regex(/^[1-9][0-9]{0,19}$/).pipe(z.string().refine(value => BigInt(value) <= 18446744073709551615n)),
   uptimeMs: unsignedSafeInteger,

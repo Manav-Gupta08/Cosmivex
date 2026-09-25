@@ -53,6 +53,16 @@ typedef struct uos_change_row {
     uint64_t generation;
 } uos_change_row;
 
+typedef struct uos_resource_visual {
+    int32_t cpu_level;
+    int32_t memory_level;
+} uos_resource_visual;
+
+typedef struct uos_resource_event {
+    double value;
+    double threshold;
+} uos_resource_event;
+
 typedef struct uos_process_info {
     uint32_t abi_version;
     uint32_t struct_size;
@@ -127,6 +137,8 @@ int32_t uos_set_process_collection(uos_engine* engine, uint32_t enabled) UOS_NOE
 int32_t uos_acquire_processes(uos_engine* engine, uint64_t sequence, uos_process_snapshot** output) UOS_NOEXCEPT;
 int32_t uos_process_info_read(const uos_process_snapshot* snapshot, uos_process_info* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_process_row* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_resource_visual_read(const uos_process_snapshot* snapshot, uint32_t index, uos_resource_visual* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_resource_event_read(const uos_process_snapshot* snapshot, uint32_t index, uos_resource_event* output, uint32_t size) UOS_NOEXCEPT;
 void uos_release_processes(uos_process_snapshot* snapshot) UOS_NOEXCEPT;
 int32_t uos_event_info_read(const uos_process_snapshot* snapshot, uos_event_info* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_event_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_event_row* output, uint32_t size) UOS_NOEXCEPT;

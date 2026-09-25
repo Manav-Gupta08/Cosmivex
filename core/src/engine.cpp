@@ -25,6 +25,8 @@ static_assert(sizeof(uos_event_info) == 32);
 static_assert(sizeof(uos_event_row) == 64);
 static_assert(sizeof(uos_delta_info) == 16);
 static_assert(sizeof(uos_change_row) == 24);
+static_assert(sizeof(uos_resource_visual) == 8);
+static_assert(sizeof(uos_resource_event) == 16);
 
 uint64_t unix_ms() {
     return static_cast<uint64_t>(std::chrono::duration_cast<Milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
@@ -194,6 +196,22 @@ int32_t uos_process_row_read(const uos_process_snapshot* snapshot, uint32_t inde
 }
 
 void uos_release_processes(uos_process_snapshot* snapshot) noexcept { delete snapshot; }
+
+int32_t uos_resource_visual_read(const uos_process_snapshot* snapshot, uint32_t index, uos_resource_visual* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_resource_visual) || index >= snapshot->value->processes.size()) return UOS_INVALID;
+    const auto& visual = snapshot->value->processes[index].resources;
+    *output = {visual.cpu_level, visual.memory_level};
+    return UOS_FRAME;
+}
+
+int32_t uos_resource_event_read(const uos_process_snapshot* snapshot, uint32_t index, uos_resource_event* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_resource_event) || !snapshot->value->events
+        || index >= snapshot->value->events->events.size()) return UOS_INVALID;
+    const auto& event = snapshot->value->events->events[index];
+    if (!event.resource_value || !event.resource_threshold) return UOS_INVALID;
+    *output = {*event.resource_value, *event.resource_threshold};
+    return UOS_FRAME;
+}
 
 int32_t uos_event_info_read(const uos_process_snapshot* snapshot, uos_event_info* output, uint32_t size) noexcept {
     if (!snapshot || !output || size != sizeof(uos_event_info)) return UOS_INVALID;

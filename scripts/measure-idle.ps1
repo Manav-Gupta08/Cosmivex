@@ -18,6 +18,7 @@ try {
     } while ($added)
     $logicalCpus = [Environment]::ProcessorCount
     $previous = @{}
+    $cpuTotals = @{}
     $samples = New-Object 'System.Collections.Generic.List[object]'
     $clock = [System.Diagnostics.Stopwatch]::StartNew()
     $lastTime = 0.0
@@ -35,6 +36,7 @@ try {
             $cpu = $process.TotalProcessorTime.TotalSeconds
             if ($previous.ContainsKey($processId)) {
                 $percent = [Math]::Max(0.0, ($cpu - $previous[$processId]) / $seconds / $logicalCpus * 100)
+                $cpuTotals[$processId] = [double]$cpuTotals[$processId] + $percent
                 if ($processId -eq $application.Id) { $hostCpu += $percent } else { $webviewCpu += $percent }
             }
             $previous[$processId] = $cpu
@@ -57,7 +59,7 @@ try {
         if ($null -eq $process) { continue }
         $metadata = Get-CimInstance Win32_Process -Filter "ProcessId = $processId"
         $role = if ($processId -eq $application.Id) { 'native-host' } elseif ($metadata.CommandLine -match '--type=([^ ]+)') { $Matches[1] } else { 'webview-browser' }
-        [pscustomobject]@{ role = $role; workingSetMiB = $process.WorkingSet64 / 1MB; privateMiB = $process.PrivateMemorySize64 / 1MB }
+        [pscustomobject]@{ role = $role; meanCpuPercent = [double]$cpuTotals[$processId] / $samples.Count; workingSetMiB = $process.WorkingSet64 / 1MB; privateMiB = $process.PrivateMemorySize64 / 1MB }
         $process.Dispose()
     })
     $result = [ordered]@{

@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
-import { spawn } from 'node:child_process'
+import { spawn, fork } from 'node:child_process'
 import { PerspectiveCamera, Vector3 } from 'three'
 
 const native = process.argv.includes('--native')
@@ -35,6 +35,80 @@ async function canvasIsVisible() {
   }, [...screenshot])
   expect(pixels).toBeGreaterThan(20)
   return { screenshot, pixels }
+}
+
+async function selectedStarPixels() {
+  const screenshot = await page.screenshot({ clip: { x: 520, y: 250, width: 320, height: 320 } })
+  return page.evaluate(async bytes => {
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/png' }))
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 320
+    const context = canvas.getContext('2d')
+    context.drawImage(bitmap, 0, 0)
+    bitmap.close()
+    const data = context.getImageData(0, 0, 320, 320).data
+    let area = 0
+    let brightness = 0
+    for (let index = 0; index < data.length; index += 4) {
+      const red = data[index], green = data[index + 1], blue = data[index + 2]
+      if (red > 60 && red > green * 1.12 && green > blue * 0.95) { area += 1; brightness += red + green + blue }
+    }
+    return { area, brightness: area ? brightness / area : 0 }
+  }, [...screenshot])
+}
+
+async function verifyResources() {
+  const probe = fork(new URL('./process-workload.mjs', import.meta.url), ['--resource-probe'], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true })
+  const command = value => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Resource workload command timed out: ${value}`)), 10000)
+    probe.once('message', message => { clearTimeout(timer); resolve(message) })
+    if (value !== 'ready') probe.send(value)
+  })
+  try {
+    await command('ready')
+    const pid = String(probe.pid)
+    await page.getByRole('textbox', { name: 'Search processes' }).fill(pid)
+    await expect(page.getByRole('complementary', { name: 'Process list' }).getByRole('button', { name: 'node.exe', exact: true })).toBeVisible({ timeout: 8000 })
+    await page.getByRole('textbox', { name: 'Search processes' }).press('Enter')
+    await expect(page.getByTestId('process-pid')).toHaveText(pid)
+    await expect.poll(async () => Number.parseInt(await page.getByTestId('cpu-level').innerText()), { timeout: 10000 }).toBe(0)
+    const initialMemory = Number.parseInt(await page.getByTestId('memory-level').innerText())
+    await expect.poll(async () => (await selectedStarPixels()).area, { timeout: 5000 }).toBeGreaterThan(1000)
+    const quiet = await selectedStarPixels()
+    await command('cpu-on')
+    await expect.poll(async () => Number.parseFloat(await page.getByTestId('process-cpu').innerText()), { timeout: 15000 }).toBeGreaterThanOrEqual(10)
+    await expect.poll(async () => (await selectedStarPixels()).brightness, { timeout: 6000 }).toBeGreaterThan(quiet.brightness * 1.15)
+    const busy = await selectedStarPixels()
+    await page.screenshot({ path: 'artifacts/native-resource-cpu.png' })
+    await page.getByRole('button', { name: 'Recent activity', exact: true }).click()
+    const spike = page.locator(`li[data-kind="RESOURCE_SPIKE"][data-pid="${pid}"]`)
+    await expect(spike).toBeVisible({ timeout: 12000 })
+    await expect(spike).toContainText('10% threshold')
+    await page.screenshot({ path: 'artifacts/native-resource-spike.png' })
+    expect(await spike.count()).toBe(1)
+    await command('cpu-off')
+    await page.getByRole('button', { name: 'Close activity' }).click()
+    await expect.poll(async () => Number.parseInt(await page.getByTestId('cpu-level').innerText()), { timeout: 12000 }).toBe(0)
+    const small = await selectedStarPixels()
+    await command('memory-up')
+    await expect.poll(async () => Number.parseInt(await page.getByTestId('memory-level').innerText()), { timeout: 10000 }).toBeGreaterThan(initialMemory + 3)
+    await expect.poll(async () => (await selectedStarPixels()).area, { timeout: 6000 }).toBeGreaterThan(small.area * 1.25)
+    const large = await selectedStarPixels()
+    const largeMemory = await page.getByTestId('process-memory').innerText()
+    await page.screenshot({ path: 'artifacts/native-resource-memory.png' })
+    await page.getByRole('button', { name: 'Engine diagnostics' }).click()
+    await page.getByRole('checkbox', { name: 'Resource visuals' }).uncheck()
+    await expect.poll(async () => (await selectedStarPixels()).area, { timeout: 5000 }).toBeLessThan(large.area * 0.75)
+    await page.getByRole('checkbox', { name: 'Resource visuals' }).check()
+    await page.getByRole('button', { name: 'Close diagnostics' }).click()
+    expect(Number.parseFloat(await page.getByTestId('process-memory').innerText())).toBeGreaterThan(300)
+    await page.setViewportSize({ width: 400, height: 740 })
+    expect(await page.getByRole('complementary', { name: 'Process details' }).evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false)
+    await page.screenshot({ path: 'artifacts/native-narrow-resources.png' })
+    await page.setViewportSize({ width: 1360, height: 820 })
+    await page.getByRole('button', { name: 'Close process details' }).click()
+    console.log(JSON.stringify({ resourceProbePid: pid, cpuBrightnessBefore: quiet.brightness, cpuBrightnessAfter: busy.brightness, memoryAreaBefore: small.area, memoryAreaAfter: large.area, workingSet: largeMemory, resourceToggleVerified: true }))
+  } finally { if (probe.exitCode === null) probe.kill() }
 }
 
 try {
@@ -158,6 +232,7 @@ try {
       await expect(page.getByTestId('process-status')).toHaveText('No longer observed', { timeout: 6000 })
       await page.getByRole('button', { name: 'Close process details' }).click()
     }
+    await verifyResources()
     await page.getByRole('button', { name: 'Process list', exact: true }).click()
     await expect(page.getByRole('table')).toBeVisible()
     expect(await page.getByRole('row').count()).toBeLessThanOrEqual(51)
@@ -196,6 +271,16 @@ try {
     await expect(page.getByRole('button', { name: 'Eco profile' })).toBeDisabled()
     await expect(page.getByTestId('sequence')).toHaveText('Unavailable')
   }
+  if (native) {
+    await expect(page.getByTestId('camera-motion')).toHaveText('Still', { timeout: 10000 })
+    const sequence = BigInt(await page.getByTestId('sequence').innerText())
+    const before = Number(await page.getByTestId('frames-rendered').innerText())
+    await expect.poll(async () => BigInt(await page.getByTestId('sequence').innerText()) >= sequence + 4n, { timeout: 10000 }).toBe(true)
+    const dataFrames = Number(await page.getByTestId('frames-rendered').innerText()) - before
+    expect(dataFrames).toBeLessThan(24)
+    console.log(JSON.stringify({ dataDrivenFramesAcrossFourSamples: dataFrames }))
+    await page.getByRole('checkbox', { name: 'Resource visuals' }).uncheck()
+  }
   let previousFrames = ''
   let stableSamples = 0
   await expect.poll(async () => {
@@ -206,6 +291,7 @@ try {
   }, { timeout: 15000, intervals: [1000] }).toBeGreaterThanOrEqual(3)
   await page.screenshot({ path: `artifacts/${native ? 'native' : 'browser'}-diagnostics.png` })
   if (native) console.log(await page.getByRole('complementary').innerText())
+  if (native) await page.getByRole('checkbox', { name: 'Resource visuals' }).check()
   await page.getByRole('button', { name: 'Close diagnostics' }).click()
   await page.setViewportSize({ width: 400, height: 740 })
   const mobile = await canvasIsVisible()

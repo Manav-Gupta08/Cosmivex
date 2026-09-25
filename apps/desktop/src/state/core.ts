@@ -2,8 +2,9 @@ import { create } from 'zustand'
 import type { CoreFrame, ProcessRecord, GalaxyRecord } from '../../../../shared/protocol/core'
 import { buildLayout, type UniverseLayout, type ViewMode, type Position } from '../../universe/layout'
 import type { CorePacket, ProcessEvent } from '../../../../shared/protocol/stream'
+import { updateResourceLevels, type ResourceLevels } from '../../universe/resources'
 
-export interface LifecycleEffect { sequence: string; kind: 'PROCESS_CREATED' | 'PROCESS_TERMINATED'; universe: Position; hierarchy: Position; startedAt: number }
+export interface LifecycleEffect { sequence: string; kind: 'PROCESS_CREATED' | 'PROCESS_TERMINATED' | 'RESOURCE_SPIKE'; universe: Position; hierarchy: Position; startedAt: number }
 
 const emptyLayout = buildLayout({ observedAtUnixMs: 0, logicalCpus: 1, error: 0, truncated: false, collectionMs: 0, rows: [], galaxies: [], modelBuildMs: 0 })
 
@@ -40,6 +41,9 @@ interface CoreState {
   deltaBatches: number
   changedRows: number
   lastPayloadBytes: number
+  resourceLevels: ReadonlyMap<string, ResourceLevels>
+  resourceVisuals: boolean
+  setResourceVisuals: (enabled: boolean) => void
   setQuery: (query: string) => void
   select: (id: string | null) => void
   selectGalaxy: (id: string | null) => void
@@ -54,12 +58,14 @@ export const useCoreStore = create<CoreState>((set) => ({
   processIds: [], query: '', selected: null, focusRevision: 0,
   selectedGalaxy: null, layout: emptyLayout, viewMode: 'universe',
   events: [], eventCursor: '0', evictedEvents: '0', missedEvents: '0', effects: [], lastDelivery: null, fullSnapshots: 0, deltaBatches: 0, changedRows: 0, lastPayloadBytes: 0,
+  resourceLevels: new Map(), resourceVisuals: true,
+  setResourceVisuals: resourceVisuals => set({ resourceVisuals }),
   setQuery: query => set(state => ({ query, processIds: reuseIds(state.processIds, matchingIds(state.frame, query)) })),
   select: id => set(state => ({ selected: state.frame?.processes.rows.find(process => process.id === id) ?? null, selectedGalaxy: null, focusRevision: state.focusRevision + 1 })),
   selectGalaxy: id => set(state => ({ selectedGalaxy: state.frame?.processes.galaxies.find(group => group.id === id) ?? null, selected: null, focusRevision: state.focusRevision + 1 })),
   setViewMode: viewMode => set({ viewMode }),
   begin: () => set({ status: 'connecting', frame: null, error: null, bytesReceived: 0, lastReceivedAt: null, processIds: [], selected: null, selectedGalaxy: null, query: '', layout: emptyLayout,
-    events: [], eventCursor: '0', evictedEvents: '0', missedEvents: '0', effects: [], lastDelivery: null, fullSnapshots: 0, deltaBatches: 0, changedRows: 0, lastPayloadBytes: 0 }),
+    events: [], eventCursor: '0', evictedEvents: '0', missedEvents: '0', effects: [], lastDelivery: null, fullSnapshots: 0, deltaBatches: 0, changedRows: 0, lastPayloadBytes: 0, resourceLevels: new Map() }),
   receive: (frame, bytes, now, packet) => set(state => {
     if (state.frame?.subscriptionId === frame.subscriptionId && (BigInt(state.frame.sequence) > BigInt(frame.sequence)
       || (state.frame.sequence === frame.sequence && packet?.kind !== 'snapshot'))) return state
@@ -78,9 +84,9 @@ export const useCoreStore = create<CoreState>((set) => ({
         && !incoming.some(event => ['BASELINE', 'EVENT_GAP', 'COLLECTION_PAUSED'].includes(event.kind))) {
       for (const event of incoming) {
         if (!event.processId || BigInt(event.sequence) <= BigInt(state.eventCursor)
-            || !['PROCESS_CREATED', 'PROCESS_TERMINATED'].includes(event.kind)
+            || !['PROCESS_CREATED', 'PROCESS_TERMINATED', 'RESOURCE_SPIKE'].includes(event.kind)
             || frame.observedAtUnixMs - event.observedAtUnixMs > frame.intervalMs * 2) continue
-        const source = event.kind === 'PROCESS_CREATED' ? layout : state.layout
+        const source = event.kind === 'PROCESS_TERMINATED' ? state.layout : layout
         const universe = source.universe.get(event.processId)
         const hierarchy = source.hierarchy.get(event.processId)
         if (universe && hierarchy) effects.push({ sequence: event.sequence, kind: event.kind as LifecycleEffect['kind'], universe, hierarchy, startedAt: now })
@@ -99,6 +105,7 @@ export const useCoreStore = create<CoreState>((set) => ({
       deltaBatches: state.deltaBatches + (packet?.kind === 'delta' ? 1 : 0),
       changedRows: packet ? packet.processes.rows.length + packet.processes.removed.length : frame.processes.rows.length,
       lastPayloadBytes: bytes,
+      resourceLevels: updateResourceLevels(state.resourceLevels, frame.processes.rows),
     }
   }),
   fail: error => set({ status: 'error', error }),

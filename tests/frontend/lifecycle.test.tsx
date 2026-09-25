@@ -6,7 +6,7 @@ import { coreFixture, processFixture, galaxyFixture, packetFixture } from './fix
 import type { ProcessEvent } from '../../shared/protocol/stream'
 
 const event: ProcessEvent = { sequence: '1', observedAtUnixMs: coreFixture.observedAtUnixMs, previousObservedAtUnixMs: coreFixture.observedAtUnixMs - 1000,
-  monotonicNs: '1', processId: '42:1', pid: 42, kind: 'PROCESS_CREATED', reason: 'observation', name: 'fixture.exe' }
+  monotonicNs: '1', processId: '42:1', pid: 42, kind: 'PROCESS_CREATED', reason: 'observation', name: 'fixture.exe', resourceValue: null, resourceThreshold: null }
 const frame = { ...coreFixture, enabledCollectors: 1 as const, intervalMs: 1000 as const,
   processes: { ...coreFixture.processes, rows: [processFixture], galaxies: [galaxyFixture] } }
 beforeEach(() => useCoreStore.getState().begin())
@@ -53,4 +53,16 @@ it('counts an explicit same-sequence full resync without rebuilding layout', () 
   store.receive(frame, 100, 2000, packetFixture(frame))
   expect(useCoreStore.getState().fullSnapshots).toBe(2)
   expect(useCoreStore.getState().layout).toBe(layout)
+})
+
+it('shows measured spike data and creates only a bounded fresh effect', () => {
+  const store = useCoreStore.getState()
+  store.receive(frame, 100, 1000, packetFixture(frame))
+  const next = { ...frame, sequence: '2' }
+  const spike = { ...event, kind: 'RESOURCE_SPIKE' as const, reason: 'cpu-sustained' as const, resourceValue: 12, resourceThreshold: 10 }
+  store.receive(next, 100, 2000, { ...packetFixture(next), kind: 'delta', baseSequence: '1', events: { throughSequence: '1', evictedCount: '0', gapCount: '0', rows: [spike] } })
+  expect(useCoreStore.getState().effects[0].kind).toBe('RESOURCE_SPIKE')
+  render(<Activity close={() => {}} />)
+  expect(screen.getByText('Sustained CPU spike')).toBeInTheDocument()
+  expect(screen.getByText('12.00% CPU / 10% threshold')).toBeInTheDocument()
 })

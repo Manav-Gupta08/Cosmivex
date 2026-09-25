@@ -56,6 +56,12 @@ int main() {
         require(uos_process_row_read(held, info.count, &row, sizeof(row)) == UOS_INVALID, "bounds check process rows");
         require(uos_process_row_read(held, 0, &row, sizeof(row)) == UOS_FRAME, "read native process row");
         require(row.name && row.name_length > 0, "borrowed name lifetime");
+        uos_resource_visual visual{};
+        require(uos_resource_visual_read(held, info.count, &visual, sizeof(visual)) == UOS_INVALID, "resource row bounds");
+        require(uos_resource_visual_read(held, 0, &visual, 0) == UOS_INVALID, "resource ABI size check");
+        require(uos_resource_visual_read(held, 0, &visual, sizeof(visual)) == UOS_FRAME, "resource visual through ABI");
+        require((visual.cpu_level >= 0) == ((row.available & 2u) != 0), "CPU visual availability matches observation");
+        require((visual.memory_level >= 0) == ((row.available & 4u) != 0), "memory visual availability matches observation");
         uos_model_info model{};
         require(uos_model_info_read(held, &model, 0) == UOS_INVALID, "model ABI size check");
         require(uos_model_info_read(held, &model, sizeof(model)) == UOS_FRAME && model.galaxy_count > 0, "real model through ABI");
@@ -71,6 +77,8 @@ int main() {
         uos_event_row event{};
         require(uos_event_row_read(held, event_info.count, &event, sizeof(event)) == UOS_INVALID, "event bounds");
         require(uos_event_row_read(held, 0, &event, sizeof(event)) == UOS_FRAME && event.kind == 0, "initial observation baseline");
+        uos_resource_event resource_event{};
+        require(uos_resource_event_read(held, 0, &resource_event, sizeof(resource_event)) == UOS_INVALID, "baseline cannot pretend to be a resource spike");
         uos_delta* delta = nullptr;
         uos_delta_info delta_info{};
         require(uos_delta_create(held, held, &delta) == UOS_FRAME, "diff retained immutable snapshots");

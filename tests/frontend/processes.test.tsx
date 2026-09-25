@@ -13,7 +13,7 @@ afterEach(cleanup)
 
 it('keeps instance identities unchanged across metric-only updates', () => {
   const before = useCoreStore.getState()
-  before.receive({ ...before.frame!, sequence: '2', processes: { ...before.frame!.processes, rows: [{ ...processFixture, cpuPercent: 5 }] } }, 100, 2000)
+  before.receive({ ...before.frame!, sequence: '2', processes: { ...before.frame!.processes, rows: [{ ...processFixture, cpuPercent: 5, cpuLevel: 7 }] } }, 100, 2000)
   expect(useCoreStore.getState().processIds).toBe(before.processIds)
   expect(processPosition(processFixture.id)).toEqual(processPosition(processFixture.id))
 })

@@ -55,7 +55,7 @@ impl Delivery {
                 }
                 Err(message) => {
                     let _ = subscriber.channel.send(Frame::Error {
-                        protocol_version: 4,
+                        protocol_version: 5,
                         subscription_id: subscriber.id,
                         message,
                     });
