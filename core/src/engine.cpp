@@ -3,6 +3,7 @@
 #include "universe/model.hpp"
 #include "universe/changes.hpp"
 #include "universe/network.hpp"
+#include "universe/filesystem.hpp"
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -31,6 +32,9 @@ static_assert(sizeof(uos_resource_event) == 16);
 static_assert(sizeof(uos_network_info) == 64);
 static_assert(sizeof(uos_connection_row) == 72);
 static_assert(sizeof(uos_interface_row) == 72);
+static_assert(sizeof(uos_filesystem_info) == 96);
+static_assert(sizeof(uos_file_entry) == 64);
+static_assert(sizeof(uos_file_event) == 48);
 
 uint64_t unix_ms() {
     return static_cast<uint64_t>(std::chrono::duration_cast<Milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
@@ -47,6 +51,9 @@ struct uos_process_snapshot {
 struct uos_delta { std::vector<uos_change_row> rows; };
 
 struct uos_engine {
+    struct FileRequest { uint32_t action; std::string root; uint64_t scope; uint64_t entry; };
+    std::optional<FileRequest> file_request;
+    std::shared_ptr<const universe::FileSystemSnapshot> filesystem = std::make_shared<universe::FileSystemSnapshot>();
     std::mutex mutex;
     std::condition_variable changed;
     bool stopped = false;
@@ -68,16 +75,22 @@ struct uos_engine {
             universe::ProcessTracker tracker;
             auto network_collector = universe::make_network_collector();
             universe::NetworkTracker network_tracker;
+            auto file_monitor = universe::make_filesystem_monitor();
             std::unique_lock lock(mutex);
             while (!stopped) {
                 const auto revision = configuration_revision;
                 const bool sample_processes = collect_processes;
                 const bool sample_network = collect_network && SteadyClock::now() >= next_network_sample;
                 const auto previous = processes;
-                if (sample_processes || sample_network) {
+                const auto request = std::move(file_request);
+                file_request.reset();
+                const bool sample_filesystem = request.has_value() || filesystem->watching
+                    || (previous->filesystem ? previous->filesystem->revision : 0) != filesystem->revision;
+                if (sample_processes || sample_network || sample_filesystem) {
                     lock.unlock();
                     std::shared_ptr<universe::ProcessSnapshot> sampled;
                     std::shared_ptr<universe::NetworkSnapshot> sampled_network;
+                    std::shared_ptr<const universe::FileSystemSnapshot> sampled_filesystem;
                     try {
                         sampled = sample_processes ? std::make_shared<universe::ProcessSnapshot>(tracker.normalize(collector->collect(stop)))
                             : std::make_shared<universe::ProcessSnapshot>(*previous);
@@ -98,9 +111,22 @@ struct uos_engine {
                         }
                         sampled_network->enabled = true;
                     }
+                    if (sample_filesystem) {
+                        try {
+                            if (!request) sampled_filesystem = file_monitor->poll();
+                            else if (request->action == 0) sampled_filesystem = file_monitor->select_root(request->root);
+                            else if (request->action == 1) sampled_filesystem = file_monitor->navigate(request->scope, request->entry);
+                            else sampled_filesystem = file_monitor->stop();
+                        } catch (...) {
+                            auto failed = std::make_shared<universe::FileSystemSnapshot>();
+                            failed->revision = filesystem->revision + 1; failed->error = 8;
+                            file_monitor->stop(); sampled_filesystem = failed;
+                        }
+                    }
                     lock.lock();
                     if (stopped) break;
                     if (revision != configuration_revision) {
+                        if (sampled_filesystem) filesystem = std::move(sampled_filesystem);
                         if (!collect_processes) tracker.reset();
                         if (!collect_network) network_tracker.reset();
                         continue;
@@ -111,6 +137,8 @@ struct uos_engine {
                         next_network_sample = SteadyClock::now() + Milliseconds(latest.profile == UOS_ECO ? 5000 : 2000);
                     }
                     sampled->network = network;
+                    if (sampled_filesystem) filesystem = std::move(sampled_filesystem);
+                    sampled->filesystem = filesystem;
                     processes = std::move(sampled);
                     publish();
                     changed.notify_all();
@@ -188,6 +216,7 @@ int32_t uos_set_process_collection(uos_engine* engine, uint32_t enabled) noexcep
         auto cleared = std::make_shared<universe::ProcessSnapshot>();
         cleared->events = enabled ? engine->journal.current() : engine->journal.pause(unix_ms(), monotonic_ns());
         cleared->network = engine->network;
+        cleared->filesystem = engine->filesystem;
         engine->processes = std::move(cleared);
         engine->update_interval();
         ++engine->configuration_revision;
@@ -392,4 +421,46 @@ void uos_destroy(uos_engine* engine) noexcept {
     if (!engine) return;
     uos_stop(engine);
     try { delete engine; } catch (...) {}
+}
+
+int32_t uos_filesystem_command(uos_engine* engine, uint32_t action, const char* root, uint32_t length, uint64_t scope, uint64_t entry) noexcept {
+    if (!engine || action > 2 || length > 16384 || (action == 0 && (!root || length == 0))) return UOS_INVALID;
+    try {
+        std::lock_guard lock(engine->mutex);
+        if (engine->stopped) return UOS_STOPPED;
+        engine->file_request = uos_engine::FileRequest{action, action == 0 ? std::string(root, length) : std::string{}, scope, entry};
+        ++engine->configuration_revision;
+        engine->changed.notify_all();
+        return UOS_FRAME;
+    } catch (...) { return UOS_ERROR; }
+}
+
+int32_t uos_filesystem_info_read(const uos_process_snapshot* snapshot, uos_filesystem_info* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_filesystem_info)) return UOS_INVALID;
+    *output = {}; output->abi_version = UOS_ABI_VERSION; output->struct_size = sizeof(uos_filesystem_info);
+    if (const auto& value = snapshot->value->filesystem) {
+        output->revision = value->revision; output->scope = value->scope; output->observed_at_unix_ms = value->observed_at_unix_ms;
+        output->evicted_events = value->evicted_events; output->error = value->error; output->watch_error = value->watch_error;
+        output->watching = value->watching ? 1u : 0u; output->truncated = value->truncated ? 1u : 0u;
+        output->entry_count = static_cast<uint32_t>(value->entries.size()); output->event_count = static_cast<uint32_t>(value->events.size());
+        output->scan_ms = value->scan_ms; output->root = value->root.data(); output->root_length = static_cast<uint32_t>(value->root.size());
+        output->relative = value->relative.data(); output->relative_length = static_cast<uint32_t>(value->relative.size());
+    }
+    return UOS_FRAME;
+}
+
+int32_t uos_file_entry_read(const uos_process_snapshot* snapshot, uint32_t index, uos_file_entry* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_file_entry) || !snapshot->value->filesystem || index >= snapshot->value->filesystem->entries.size()) return UOS_INVALID;
+    const auto& entry = snapshot->value->filesystem->entries[index];
+    *output = {entry.generation, entry.file_id, entry.created_ticks, entry.modified_unix_ms, entry.size, entry.attributes,
+        entry.directory ? 1u : 0u, entry.reparse ? 1u : 0u, static_cast<uint32_t>(entry.name.size()), entry.name.data()};
+    return UOS_FRAME;
+}
+
+int32_t uos_file_event_read(const uos_process_snapshot* snapshot, uint32_t index, uos_file_event* output, uint32_t size) noexcept {
+    if (!snapshot || !output || size != sizeof(uos_file_event) || !snapshot->value->filesystem || index >= snapshot->value->filesystem->events.size()) return UOS_INVALID;
+    const auto& event = snapshot->value->filesystem->events[index];
+    *output = {event.sequence, event.observed_at_unix_ms, static_cast<uint32_t>(event.kind), static_cast<uint32_t>(event.name.size()),
+        static_cast<uint32_t>(event.previous_name.size()), 0, event.name.data(), event.previous_name.data()};
+    return UOS_FRAME;
 }

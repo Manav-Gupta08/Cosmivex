@@ -1,4 +1,5 @@
 use crate::changes::{self, Events};
+use crate::filesystem::{self, FileCache, FileSystemSnapshot};
 use crate::network::{self, NetworkSnapshot};
 use crate::universe::{self, Galaxy};
 use serde::Serialize;
@@ -101,6 +102,8 @@ pub struct ProcessSnapshot {
     pub events: Events,
     #[serde(skip)]
     pub network: NetworkSnapshot,
+    #[serde(skip)]
+    pub filesystem: Arc<FileSystemSnapshot>,
     pub observed_at_unix_ms: u64,
     pub logical_cpus: u32,
     pub error: u32,
@@ -111,7 +114,11 @@ pub struct ProcessSnapshot {
     pub model_build_ms: f64,
 }
 
-pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnapshot>>, String> {
+pub fn read(
+    engine: *mut c_void,
+    sequence: u64,
+    cache: &FileCache,
+) -> Result<Option<Arc<ProcessSnapshot>>, String> {
     let mut raw = std::ptr::null_mut();
     match unsafe { uos_acquire_processes(engine, sequence, &mut raw) } {
         0 | 2 => return Ok(None),
@@ -201,10 +208,12 @@ pub fn read(engine: *mut c_void, sequence: u64) -> Result<Option<Arc<ProcessSnap
     let (galaxies, model_build_ms) = universe::read(handle.0.as_ptr(), &mut rows)?;
     let events = changes::events(handle.0.as_ptr())?;
     let network = network::read(handle.0.as_ptr())?;
+    let filesystem = filesystem::read(handle.0.as_ptr(), cache)?;
     Ok(Some(Arc::new(ProcessSnapshot {
         native: Arc::new(handle),
         events,
         network,
+        filesystem,
         observed_at_unix_ms: info.observed_at_unix_ms,
         logical_cpus: info.logical_cpus,
         error: info.error,

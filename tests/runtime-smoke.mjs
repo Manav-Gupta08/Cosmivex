@@ -5,6 +5,7 @@ import { PerspectiveCamera, Vector3 } from 'three'
 import { createServer, createConnection } from 'node:net'
 import { createSocket } from 'node:dgram'
 import { once } from 'node:events'
+import { verifyFilesystem } from './filesystem-smoke.mjs'
 
 const native = process.argv.includes('--native')
 const endpoint = process.env.UOS_TEST_ENDPOINT ?? (native ? 'http://127.0.0.1:9223' : 'http://127.0.0.1:1420')
@@ -288,11 +289,15 @@ try {
       await page.screenshot({ path: 'artifacts/native-process.png' })
       console.log(JSON.stringify({ workloadPid, observedCpu, referenceCpu, observedMemoryMiB: observedMemory, referenceMemoryMiB: referenceMemory }))
       await page.getByRole('button', { name: 'Close process details' }).click()
+      await page.getByRole('textbox', { name: 'Search processes' }).fill(workloadPid)
+      await page.getByRole('button', { name: 'Close process list' }).click()
       await expect(async () => {
         const viewport = page.viewportSize()
         await page.mouse.click(viewport.width / 2, viewport.height / 2)
         await expect(page.getByTestId('process-pid')).toHaveText(workloadPid, { timeout: 500 })
       }).toPass({ timeout: 8000 })
+      await page.getByRole('textbox', { name: 'Search processes' }).fill('')
+      await page.getByRole('button', { name: 'Close process list' }).click()
       await page.setViewportSize({ width: 400, height: 740 })
       expect(await page.getByRole('complementary', { name: 'Process details' }).evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false)
       await page.screenshot({ path: 'artifacts/native-narrow-process.png' })
@@ -332,6 +337,7 @@ try {
     }
     await verifyResources()
     await verifyNetwork()
+    await verifyFilesystem(page, canvasIsVisible)
     await page.getByRole('button', { name: 'Process list', exact: true }).click()
     await expect(page.getByRole('table')).toBeVisible()
     expect(await page.getByRole('row').count()).toBeLessThanOrEqual(51)

@@ -109,6 +109,27 @@ typedef struct uos_interface_row {
     uint32_t reserved;
 } uos_interface_row;
 
+typedef struct uos_filesystem_info {
+    uint32_t abi_version, struct_size;
+    uint64_t revision, scope, observed_at_unix_ms, evicted_events;
+    uint32_t error, watch_error, watching, truncated, entry_count, event_count;
+    double scan_ms;
+    const char* root;
+    const char* relative;
+    uint32_t root_length, relative_length;
+} uos_filesystem_info;
+typedef struct uos_file_entry {
+    uint64_t generation, file_id, created_ticks, modified_unix_ms, size;
+    uint32_t attributes, directory, reparse, name_length;
+    const char* name;
+} uos_file_entry;
+typedef struct uos_file_event {
+    uint64_t sequence, observed_at_unix_ms;
+    uint32_t kind, name_length, previous_length, reserved;
+    const char* name;
+    const char* previous_name;
+} uos_file_event;
+
 typedef struct uos_process_info {
     uint32_t abi_version;
     uint32_t struct_size;
@@ -181,6 +202,10 @@ int32_t uos_wait(uos_engine* engine, uint64_t after_sequence, uint32_t timeout_m
 int32_t uos_set_profile(uos_engine* engine, uint32_t profile) UOS_NOEXCEPT;
 int32_t uos_set_process_collection(uos_engine* engine, uint32_t enabled) UOS_NOEXCEPT;
 int32_t uos_set_network_collection(uos_engine* engine, uint32_t enabled) UOS_NOEXCEPT;
+int32_t uos_filesystem_command(uos_engine* engine, uint32_t action, const char* root, uint32_t length, uint64_t scope, uint64_t entry) UOS_NOEXCEPT;
+int32_t uos_filesystem_info_read(const uos_process_snapshot* snapshot, uos_filesystem_info* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_file_entry_read(const uos_process_snapshot* snapshot, uint32_t index, uos_file_entry* output, uint32_t size) UOS_NOEXCEPT;
+int32_t uos_file_event_read(const uos_process_snapshot* snapshot, uint32_t index, uos_file_event* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_network_info_read(const uos_process_snapshot* snapshot, uos_network_info* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_connection_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_connection_row* output, uint32_t size) UOS_NOEXCEPT;
 int32_t uos_interface_row_read(const uos_process_snapshot* snapshot, uint32_t index, uos_interface_row* output, uint32_t size) UOS_NOEXCEPT;

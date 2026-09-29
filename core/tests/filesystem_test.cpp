@@ -92,6 +92,15 @@ int main() {
         check(alias->reparse && monitor->navigate(linked->scope, alias->generation) == linked, "junction cannot be navigated");
         check(monitor->select_root((root / "alias").string())->error == ERROR_ACCESS_DENIED, "junction cannot be selected as root");
         std::filesystem::remove(root / "alias");
+        monitor->select_root(root.string());
+        for (uint32_t index = 0; index < 300; ++index) { std::ofstream output(root / ("burst-" + std::to_string(index))); output << "x"; }
+        const auto burst = observed(*monitor, [](const auto& snapshot) { return snapshot.entries.size() == 302 && (snapshot.evicted_events > 0 || std::any_of(snapshot.events.begin(), snapshot.events.end(), [](const auto& event) { return event.kind == universe::FileEventKind::gap; })); });
+        check(burst->events.size() <= universe::filesystem_event_limit, "event history stays bounded during real burst");
+        check(burst->evicted_events > 0 || std::any_of(burst->events.begin(), burst->events.end(), [](const auto& event) { return event.kind == universe::FileEventKind::gap; }), "burst eviction or notification loss is explicit");
+        monitor->stop();
+        for (uint32_t index = 300; index < 4100; ++index) { std::ofstream output(root / ("burst-" + std::to_string(index))); }
+        const auto limited = monitor->select_root(root.string());
+        check(limited->truncated && limited->entries.size() == universe::filesystem_entry_limit, "large directories are explicitly bounded");
         monitor->stop();
         check(!monitor->poll()->watching && monitor->poll()->entries.empty(), "stop clears watch and metadata");
         std::filesystem::remove_all(root);

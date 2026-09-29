@@ -1,5 +1,6 @@
 mod bridge;
 mod changes;
+mod filesystem;
 mod native;
 mod network;
 mod process;
@@ -18,7 +19,7 @@ async fn subscribe_core(
     on_frame: Channel<Frame>,
     protocol_version: u32,
 ) -> Result<u32, String> {
-    if protocol_version != 6 {
+    if protocol_version != 7 {
         return Err("Unsupported UI protocol version".into());
     }
     state.0.as_ref().map_err(Clone::clone)?.subscribe(on_frame)
@@ -75,7 +76,10 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             unsubscribe_core,
             set_profile,
             set_process_collection,
-            set_network_collection
+            set_network_collection,
+            filesystem_root,
+            filesystem_navigate,
+            filesystem_stop
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -104,4 +108,34 @@ fn set_network_collection(state: State<CoreState>, enabled: bool) -> Result<(), 
         .as_ref()
         .map_err(Clone::clone)?
         .set_network_collection(enabled)
+}
+
+#[tauri::command]
+fn filesystem_root(state: State<CoreState>, path: String) -> Result<(), String> {
+    state
+        .0
+        .as_ref()
+        .map_err(Clone::clone)?
+        .filesystem_command(0, &path, 0, 0)
+}
+#[tauri::command]
+fn filesystem_navigate(
+    state: State<CoreState>,
+    scope: String,
+    entry: String,
+) -> Result<(), String> {
+    state.0.as_ref().map_err(Clone::clone)?.filesystem_command(
+        1,
+        "",
+        scope.parse().map_err(|_| "Invalid folder scope")?,
+        entry.parse().map_err(|_| "Invalid entry token")?,
+    )
+}
+#[tauri::command]
+fn filesystem_stop(state: State<CoreState>) -> Result<(), String> {
+    state
+        .0
+        .as_ref()
+        .map_err(Clone::clone)?
+        .filesystem_command(2, "", 0, 0)
 }

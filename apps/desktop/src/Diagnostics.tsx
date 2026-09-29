@@ -65,6 +65,10 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>Network endpoints</dt><dd data-testid="network-instances">{metrics.networkInstances}</dd>
       <dt>TCP bridges</dt><dd data-testid="network-bridges">{metrics.networkBridges}</dd>
       <dt>Network scan</dt><dd>{frame?.network.observedAtUnixMs ? `${frame.network.collectionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
+      <dt>Filesystem watch</dt><dd>{frame?.filesystem.watching ? 'On' : 'Off'}</dd>
+      <dt>Filesystem entries</dt><dd>{metrics.filesystemEntries}</dd>
+      <dt>Filesystem revision</dt><dd data-testid="filesystem-revision">{frame?.filesystem.revision ?? 'Unavailable'}</dd>
+      <dt>Directory scan</dt><dd>{frame?.filesystem.root ? `${frame.filesystem.scanMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Collector duration</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.collectionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Model build</dt><dd>{frame?.processes.observedAtUnixMs ? `${frame.processes.modelBuildMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>Logical processors</dt><dd>{frame?.processes.observedAtUnixMs ? frame.processes.logicalCpus : 'Unavailable'}</dd>

@@ -12,7 +12,7 @@ export function processPosition(id: string): [number, number, number] {
   return [Math.cos(angle) * radius, height, Math.sin(angle) * radius]
 }
 
-export type ViewMode = 'universe' | 'hierarchy' | 'network'
+export type ViewMode = 'universe' | 'hierarchy' | 'network' | 'filesystem'
 export type Position = [number, number, number]
 export interface GraphNode { id: string; parentId: string | null; galaxyId: string; depth: number }
 export interface UniverseLayout {

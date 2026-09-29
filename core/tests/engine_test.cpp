@@ -16,6 +16,8 @@ int main() {
         std::unique_ptr<uos_engine, decltype(&uos_destroy)> engine(
             uos_create(UOS_ABI_VERSION, sizeof(uos_health)), uos_destroy);
         require(engine != nullptr, "create engine");
+        require(uos_filesystem_command(engine.get(), 0, nullptr, 0, 0, 0) == UOS_INVALID, "reject empty filesystem root");
+        require(uos_filesystem_command(engine.get(), 9, nullptr, 0, 0, 0) == UOS_INVALID, "reject unknown filesystem action");
         uos_health frame{};
         require(uos_wait(nullptr, 0, 0, &frame, sizeof(frame)) == UOS_INVALID, "reject null handle");
         require(uos_wait(engine.get(), 0, 0, nullptr, sizeof(frame)) == UOS_INVALID, "reject null output");

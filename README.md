@@ -5,7 +5,7 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 6 is implemented and functionally verified in the actual Windows application. Real
+Phase 7 is implemented and functionally verified in the actual Windows application. Real
 Windows processes appear as instanced stars in selectable, inferred galaxies.
 Switch between the galaxy universe and process hierarchy, search by name/PID,
 inspect processes or groups, and navigate validated parent links. Relationships,
@@ -27,13 +27,17 @@ retains its last observation with an explicit status. No synthetic process data
 is supplied to the application. Grouping is conservative: only connected processes
 with validated ancestry and identical observed executable paths share a galaxy.
 It is not an OS application registry; cross-image helpers can remain separate.
-Filesystem, SQLite recording, replay, and large-count LOD benchmarks remain
-later phases. The reference grid is a navigation aid, not an observed entity.
+The opt-in File System view observes one selected local directory at a time,
+non-recursively, with scoped navigation, bounded recent changes, metadata
+inspection and instanced file/directory objects. It never reads file contents;
+SQLite recording, replay, and large-count LOD benchmarks remain later phases.
+The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 6 verification](docs/phase-6.md) for current results and open concerns;
+See [Phase 7 verification](docs/phase-7.md) for current results and open concerns;
+[Phase 6 verification](docs/phase-6.md) preserves network results;
 [Phase 5 verification](docs/phase-5.md) preserves resource-mapping results and the unresolved CPU outlier;
 [Phase 4 verification](docs/phase-4.md) preserves the streaming/lifecycle baseline;
 [Phase 3 verification](docs/phase-3.md) preserves the hierarchy/grouping baseline;
@@ -115,6 +119,10 @@ test process. Worker count is capped at eight and allocation at 384 MiB.
 Network tests use only controlled loopback TCP/UDP sockets. They verify endpoints,
 state, PID, process-owner navigation, removal, direct network picking, independent
 collection controls and interface inspection. They do not contact remote services.
+Filesystem tests use a controlled temporary local directory to check real
+create/modify/rename/delete, scope-safe navigation, direct picking, idle watch
+stability and unchanged file contents. Run the native smoke and idle measurement
+separately; both launch their own release desktop instance.
 
 For investigating WebView CPU, `node tests/profile-resources.mjs` starts its own
 release app with loopback CDP on port 9224, captures 15-second CPU profiles with
@@ -140,6 +148,10 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - Network search accepts IP literals, ports, PIDs, TCP/UDP and states. The network
   list pages endpoints and interfaces in batches of 50. A connection owner link is
   offered only when its creation identity matches an observed process.
+- Select File System and enter a local absolute root to begin read-only observation.
+  Open observed directories or go up within that root; inspect file/directory
+  metadata, paged entries and recent changes. Stop the watch to clear its state.
+  Device/UNC/remote roots and reparse traversal are not supported.
 - TCP listeners and UDP binds have no invented remote peer. Per-connection traffic
   is explicitly unavailable. Interface traffic is aggregate across all processes;
   first samples and counter resets have unavailable rates, not false zeroes.
@@ -183,7 +195,7 @@ PNG/ICO assets are committed so building does not require regenerating them.
   the camera. Resource levels themselves do not require continuous interpolation.
 - One immutable latest process snapshot and one acknowledged channel chunk prevent
   event backlog. The snapshot includes the matching native hierarchy and groups.
-  C++ computes process deltas against the last fully acknowledged state. Protocol 6 uses
+  C++ computes process deltas against the last fully acknowledged state. Protocol 7 uses
   256 KiB UTF-8-safe payload chunks (under 1 MiB encoded per message), a 16 MiB
   serialization/reassembly limit, atomic application and wrong-base resync.
   Metric updates reuse layouts; unchanged visual levels reuse GPU matrices/colors.
@@ -192,6 +204,8 @@ PNG/ICO assets are committed so building does not require regenerating them.
   outside the shared-state lock. Successful image queries are lifetime-cached.
   A network snapshot is attached only when sampled or toggled, not to every
   process-only delta. Its topology layout is reused across interface counter changes.
+  A filesystem snapshot is attached only when its revision changes or on resync;
+  idle watches reuse the last state rather than repeatedly enumerating a directory.
 - CPU uses 0-100% of total logical processor capacity; working set is not private
   memory. Sampling may miss short-lived processes. At most 4,096 processes are
   collected; any truncation is explicit. No history writes.

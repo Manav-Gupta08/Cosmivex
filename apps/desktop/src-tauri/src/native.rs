@@ -40,7 +40,7 @@ extern "C" {
     fn uos_destroy(engine: *mut c_void);
 }
 
-pub struct Engine(NonNull<c_void>);
+pub struct Engine(NonNull<c_void>, crate::filesystem::FileCache);
 unsafe impl Send for Engine {}
 unsafe impl Sync for Engine {}
 
@@ -61,7 +61,7 @@ pub struct Health {
 impl Engine {
     pub fn new() -> Result<Self, String> {
         NonNull::new(unsafe { uos_create(1, size_of::<NativeHealth>() as u32) })
-            .map(Self)
+            .map(|handle| Self(handle, std::sync::Mutex::new(None)))
             .ok_or_else(|| "Native core initialization or ABI negotiation failed".into())
     }
 
@@ -88,13 +88,13 @@ impl Engine {
                     2 => Profile::Cinematic,
                     _ => return Err("Native core returned an unknown profile".into()),
                 };
-                let Some(processes) = process::read(self.0.as_ptr(), raw.sequence)? else {
+                let Some(processes) = process::read(self.0.as_ptr(), raw.sequence, &self.1)? else {
                     return Ok(None);
                 };
                 Ok(Some((
                     raw.sequence,
                     Health {
-                        protocol_version: 6,
+                        protocol_version: 7,
                         abi_version: raw.abi_version,
                         sequence: raw.sequence.to_string(),
                         uptime_ms: raw.uptime_ms,
@@ -139,6 +139,41 @@ impl Engine {
             code => Err(format!("Native network toggle failed ({code})")),
         }
     }
+
+    pub fn filesystem_command(
+        &self,
+        action: u32,
+        root: &str,
+        scope: u64,
+        entry: u64,
+    ) -> Result<(), String> {
+        unsafe extern "C" {
+            fn uos_filesystem_command(
+                engine: *mut c_void,
+                action: u32,
+                root: *const u8,
+                length: u32,
+                scope: u64,
+                entry: u64,
+            ) -> i32;
+        }
+        if root.len() > 16384 {
+            return Err("Folder path too long".into());
+        }
+        match unsafe {
+            uos_filesystem_command(
+                self.0.as_ptr(),
+                action,
+                root.as_ptr(),
+                root.len() as u32,
+                scope,
+                entry,
+            )
+        } {
+            1 => Ok(()),
+            code => Err(format!("Filesystem command failed ({code})")),
+        }
+    }
 }
 
 impl Drop for Engine {
@@ -160,7 +195,7 @@ mod tests {
         assert_eq!(frame.enabled_collectors, 0);
         let json = serde_json::to_value(&frame).unwrap();
         assert_eq!(json["sequence"], "1");
-        assert_eq!(json["protocolVersion"], 6);
+        assert_eq!(json["protocolVersion"], 7);
         engine.set_profile(Profile::Eco).unwrap();
         let (_, next) = engine.wait(sequence, 100).unwrap().unwrap();
         assert_eq!(next.interval_ms, 5000);

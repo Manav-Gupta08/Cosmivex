@@ -8,6 +8,7 @@ import { GalaxySystems, ParentLinks } from './GalaxySystems'
 import { LifecycleEffects } from './LifecycleEffects'
 import { useCoreStore } from '../src/state/core'
 import { NetworkScene } from './NetworkScene'
+import { FileSystemScene } from './FileSystemScene'
 
 const initialCamera: [number, number, number] = [48, 38, 60]
 
@@ -34,6 +35,9 @@ function Navigation({ reset }: { reset: number }) {
   const selectedGalaxyRoot = useCoreStore(state => state.selectedGalaxy?.rootId)
   const selectedNetworkId = useCoreStore(state => state.selectedConnection?.id ?? state.selectedInterface?.id)
   const networkLayout = useCoreStore(state => state.networkLayout)
+  const selectedFileId = useCoreStore(state => state.selectedFile?.id)
+  const fileLayout = useCoreStore(state => state.fileLayout)
+  const fileScope = useCoreStore(state => state.frame?.filesystem.scope)
   const layout = useCoreStore(state => state.layout)
   const mode = useCoreStore(state => state.viewMode)
   const aspect = useThree(state => state.size.width / state.size.height)
@@ -41,11 +45,11 @@ function Navigation({ reset }: { reset: number }) {
   useEffect(() => () => { renderMetrics.cameraMoving = false }, [])
   useEffect(() => {
     const transition = !matchMedia('(prefers-reduced-motion: reduce)').matches
-    const viewKey = `${mode}/${aspect}/${reset}`
+    const viewKey = `${mode}/${aspect}/${reset}/${mode === 'filesystem' ? fileScope : ''}`
     const viewChanged = previousView.current !== viewKey
     previousView.current = viewKey
     const processMode = mode === 'hierarchy' ? 'hierarchy' : 'universe'
-    const target = mode === 'network' ? networkLayout.positions.get(selectedNetworkId ?? '') : selectedId ? layout[processMode].get(selectedId)
+    const target = mode === 'filesystem' ? fileLayout.positions.get(selectedFileId ?? '') : mode === 'network' ? networkLayout.positions.get(selectedNetworkId ?? '') : selectedId ? layout[processMode].get(selectedId)
       : selectedGalaxyId ? (mode === 'universe' ? layout.galaxyPositions.get(selectedGalaxyId) : layout.hierarchy.get(selectedGalaxyRoot ?? '')) : undefined
     if (!target) {
       if (!viewChanged) return
@@ -53,9 +57,9 @@ function Navigation({ reset }: { reset: number }) {
       void controls.current?.setLookAt(initialCamera[0] * scale, initialCamera[1] * scale, initialCamera[2] * scale, 0, 0, 0, reset > 0 && transition)
       return
     }
-    const distance = selectedId || selectedNetworkId ? 1 : Math.max(2, (layout.galaxyRadii.get(selectedGalaxyId!) ?? 2) * 0.65)
+    const distance = selectedId || selectedNetworkId || selectedFileId ? 1 : Math.max(2, (layout.galaxyRadii.get(selectedGalaxyId!) ?? 2) * 0.65)
     void controls.current?.setLookAt(target[0] + 4 * distance, target[1] + 2 * distance, target[2] + 5 * distance, ...target, transition)
-  }, [selectedId, selectedGalaxyId, selectedGalaxyRoot, selectedNetworkId, networkLayout, focusRevision, layout, mode, aspect, reset])
+  }, [selectedId, selectedGalaxyId, selectedGalaxyRoot, selectedNetworkId, networkLayout, selectedFileId, fileLayout, fileScope, focusRevision, layout, mode, aspect, reset])
   return <CameraControls ref={controls} makeDefault minDistance={2} maxDistance={300} smoothTime={0.2} maxPolarAngle={Math.PI * 0.88}
     onWake={() => { renderMetrics.cameraMoving = true }} onSleep={() => { renderMetrics.cameraMoving = false }} />
 }
@@ -104,7 +108,7 @@ export const UniverseScene = memo(function UniverseScene({ profile, reset }: { p
         <color attach="background" args={['#090c0e']} />
         <fog attach="fog" args={['#090c0e', 120, 500]} />
         <ReferenceGeometry />
-        {mode === 'network' ? <NetworkScene profile={profile} /> : <><GalaxySystems /><ParentLinks /><ProcessStars /><LifecycleEffects profile={profile} /></>}
+        {mode === 'filesystem' ? <FileSystemScene /> : mode === 'network' ? <NetworkScene profile={profile} /> : <><GalaxySystems /><ParentLinks /><ProcessStars /><LifecycleEffects profile={profile} /></>}
         <Navigation reset={reset} />
         <RenderBudget profile={profile} onFailure={() => setLost(true)} />
       </Canvas>}

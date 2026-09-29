@@ -57,7 +57,7 @@ export function connectCore(): () => void {
   }
   subscriptionQueue = subscriptionQueue.then(async () => {
       if (disposed) return
-      const id = await invoke<number>('subscribe_core', { protocolVersion: 6, onFrame: channel })
+      const id = await invoke<number>('subscribe_core', { protocolVersion: 7, onFrame: channel })
       subscriptionId = id
       if (disposed) await invoke('unsubscribe_core', { subscriptionId: id })
     })
@@ -87,3 +87,7 @@ export async function resyncCore(): Promise<void> {
 export async function setNetworkCollection(enabled: boolean): Promise<void> {
   await invoke('set_network_collection', { enabled })
 }
+
+export async function openFilesystemRoot(path: string): Promise<void> { await invoke('filesystem_root', { path }) }
+export async function navigateFilesystem(scope: string, entry: string): Promise<void> { await invoke('filesystem_navigate', { scope, entry }) }
+export async function stopFilesystem(): Promise<void> { await invoke('filesystem_stop') }

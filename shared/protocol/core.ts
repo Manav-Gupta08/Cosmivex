@@ -97,9 +97,26 @@ export const networkSnapshotSchema = z.strictObject({
   && new Set(snapshot.interfaces.map(row => row.id)).size === snapshot.interfaces.length)
 export type NetworkSnapshot = z.infer<typeof networkSnapshotSchema>
 
+export const fileEntrySchema = z.strictObject({
+  id: z.string().regex(/^f:[0-9]+:[1-9][0-9]*$/).max(48), token: unsigned64, fileId: unsigned64, createdTicks: unsigned64,
+  modifiedUnixMs: unsignedSafeInteger, size: unsigned64.nullable(), attributes: unsigned32, directory: z.boolean(), reparse: z.boolean(), name: z.string().min(1).max(2048),
+}).refine(entry => (entry.directory === (entry.size === null)) && !/[\\/\u0000]/.test(entry.name) && entry.name !== '.' && entry.name !== '..')
+export type FileEntryRecord = z.infer<typeof fileEntrySchema>
+export const fileEventSchema = z.strictObject({ sequence: unsigned64, observedAtUnixMs: unsignedSafeInteger,
+  kind: z.enum(['BASELINE', 'FILE_CREATED', 'FILE_MODIFIED', 'FILE_DELETED', 'FILE_MOVED', 'EVENT_GAP', 'RENAME_FROM', 'RENAME_TO']),
+  name: z.string().max(2048), previousName: z.string().max(2048) })
+export const filesystemSnapshotSchema = z.strictObject({
+  revision: unsigned64, scope: unsigned64, observedAtUnixMs: unsignedSafeInteger, evictedEvents: unsigned64,
+  error: unsigned32, watchError: unsigned32, watching: z.boolean(), truncated: z.boolean(), scanMs: z.number().nonnegative().finite(),
+  root: z.string().max(16384), relative: z.string().max(16384), entries: z.array(fileEntrySchema).max(4096), events: z.array(fileEventSchema).max(256),
+}).refine(snapshot => new Set(snapshot.entries.map(entry => entry.id)).size === snapshot.entries.length
+  && snapshot.entries.every(entry => entry.id === `f:${snapshot.scope}:${entry.token}`)
+  && snapshot.events.every((event, index, events) => index === 0 || BigInt(event.sequence) > BigInt(events[index - 1].sequence)))
+export type FileSystemSnapshot = z.infer<typeof filesystemSnapshotSchema>
+
 export const coreFrameSchema = z.strictObject({
   subscriptionId: z.number().int().positive().max(0xffffffff),
-  protocolVersion: z.literal(6),
+  protocolVersion: z.literal(7),
   abiVersion: z.literal(1),
   sequence: z.string().regex(/^[1-9][0-9]{0,19}$/).pipe(z.string().refine(value => BigInt(value) <= 18446744073709551615n)),
   uptimeMs: unsignedSafeInteger,
@@ -109,6 +126,7 @@ export const coreFrameSchema = z.strictObject({
   enabledCollectors: z.union([z.literal(0), z.literal(1)]),
   processes: processSnapshotSchema,
   network: networkSnapshotSchema,
+  filesystem: filesystemSnapshotSchema,
 }).refine(frame => frame.intervalMs === (frame.enabledCollectors === 1
   ? (frame.profile === 'eco' ? 2000 : 1000) : (frame.profile === 'eco' ? 5000 : 2000)))
 
