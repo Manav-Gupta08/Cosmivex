@@ -131,3 +131,18 @@ export const coreFrameSchema = z.strictObject({
   ? (frame.profile === 'eco' ? 2000 : 1000) : (frame.profile === 'eco' ? 5000 : 2000)))
 
 export type CoreFrame = z.infer<typeof coreFrameSchema>
+
+const historicalCheckpointSchema = z.strictObject({
+  sequence: unsignedSafeInteger,
+  observedMs: unsignedSafeInteger,
+  state: z.strictObject({ health: z.record(z.string(), z.unknown()), network: z.unknown(), filesystem: z.unknown() }),
+})
+
+export function parseHistoricalCheckpoint(input: unknown): { observedMs: number; frame: CoreFrame } {
+  const checkpoint = historicalCheckpointSchema.parse(input)
+  const frame = coreFrameSchema.parse({ ...checkpoint.state.health, subscriptionId: 1, network: checkpoint.state.network, filesystem: checkpoint.state.filesystem })
+  if (frame.sequence !== String(checkpoint.sequence) || frame.observedAtUnixMs !== checkpoint.observedMs) {
+    throw new Error('Historical checkpoint identity mismatch')
+  }
+  return { observedMs: checkpoint.observedMs, frame }
+}

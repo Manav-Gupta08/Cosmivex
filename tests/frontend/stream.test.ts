@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { applyPacket, ChunkAssembler, packetSchema, TRANSFER_BYTES, wireSchema } from '../../shared/protocol/stream'
+import { applyPacket, ChunkAssembler, packetSchema, reconstructHistory, TRANSFER_BYTES, wireSchema } from '../../shared/protocol/stream'
 import { coreFixture, processFixture, galaxyFixture, packetFixture, chunkFixture } from './fixtures'
 
 it('assembles chunks without exposing partial snapshots', () => {
@@ -35,4 +35,18 @@ it('applies exact native upserts/removals and validates the resulting graph', ()
 it('new snapshot replaces state without needing a delta base', () => {
   const frame = { ...coreFixture, sequence: '50' }
   expect(applyPacket(coreFixture, packetFixture(frame)).sequence).toBe('50')
+})
+
+it('reconstructs recorded deltas without mutating their checkpoint', () => {
+  const { network, filesystem, subscriptionId, ...health } = coreFixture
+  void subscriptionId
+  const checkpoint = { sequence: 1, observedMs: coreFixture.observedAtUnixMs, state: { health, network, filesystem } }
+  const later = coreFixture.observedAtUnixMs + 1000
+  const delta = { ...packetFixture(), kind: 'delta', baseSequence: '1', sequence: '2', observedAtUnixMs: later, network: null, filesystem: null }
+  const chain = { checkpoint, packets: [delta], observedMs: later, gap: false }
+  expect(reconstructHistory(chain).frame.sequence).toBe('2')
+  expect(reconstructHistory({ ...chain, packets: [], observedMs: coreFixture.observedAtUnixMs }).frame.sequence).toBe('1')
+  expect(() => reconstructHistory({ ...chain, packets: [{ ...delta, baseSequence: '0' }] })).toThrow()
+  expect(() => reconstructHistory({ ...chain, observedMs: later + 1 })).toThrow('timestamp mismatch')
+  expect(coreFixture.sequence).toBe('1')
 })

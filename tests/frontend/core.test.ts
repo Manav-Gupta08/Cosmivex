@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { coreFrameSchema, processSnapshotSchema } from '../../shared/protocol/core'
+import { coreFrameSchema, parseHistoricalCheckpoint, processSnapshotSchema } from '../../shared/protocol/core'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
 import { coreFixture as fixture, processFixture, galaxyFixture } from './fixtures'
 
@@ -7,6 +7,18 @@ describe('native wire contract and latest-state store', () => {
   beforeEach(() => useCoreStore.getState().begin())
   it('accepts compatible bounded health messages', () => {
     expect(coreFrameSchema.parse(fixture)).toEqual(fixture)
+  })
+  it('validates replay checkpoints without altering live observations', () => {
+    const state = { health: (({ network, filesystem, subscriptionId, ...health }) => health)(fixture), network: fixture.network, filesystem: fixture.filesystem }
+    const input = { sequence: 1, observedMs: fixture.observedAtUnixMs, state }
+    expect(parseHistoricalCheckpoint(input).frame).toEqual(fixture)
+    expect(useCoreStore.getState().frame).toBeNull()
+    for (const invalid of [
+      { ...input, sequence: 2 },
+      { ...input, observedMs: input.observedMs + 1 },
+      { ...input, state: { ...state, network: { ...state.network, tableErrors: [0] } } },
+      { ...input, state: { ...state, health: { ...state.health, protocolVersion: 6 } } },
+    ]) expect(() => parseHistoricalCheckpoint(invalid)).toThrow()
   })
   it('rejects incompatible versions, invalid profiles, unsafe numbers and fake collectors', () => {
     for (const patch of [{ protocolVersion: 1 }, { profile: 'turbo' }, { uptimeMs: NaN }, { enabledCollectors: 1 }, { sequence: '18446744073709551616' }, { sequence: 'invalid' }, { sequence: '' }, { sequence: '-1' }, { profile: 'eco' }, { uptimeMs: Number.MAX_SAFE_INTEGER + 1 }]) {

@@ -362,7 +362,8 @@ mod tests {
             "SELECT count(*), count(ended_ms), (SELECT count(*) FROM checkpoints) FROM sessions",
             [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         ).unwrap();
-        assert_eq!((sessions, closed, checkpoints), (1, 1, 1));
+        assert_eq!((sessions, closed), (1, 1));
+        assert!(checkpoints >= 1);
         assert_eq!(crate::storage::sessions(&directory.join("history.sqlite"), 1).unwrap().len(), 1);
         drop(connection);
         std::fs::remove_dir_all(directory).unwrap();

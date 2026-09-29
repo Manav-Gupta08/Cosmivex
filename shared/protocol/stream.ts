@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { coreFrameSchema, galaxyId, processId, processSnapshotSchema, networkSnapshotSchema, filesystemSnapshotSchema, unsigned64, type CoreFrame } from './core'
+import { coreFrameSchema, galaxyId, parseHistoricalCheckpoint, processId, processSnapshotSchema, networkSnapshotSchema, filesystemSnapshotSchema, unsigned64, type CoreFrame } from './core'
 
 export const CHUNK_BYTES = 256 * 1024
 export const TRANSFER_BYTES = 16 * 1024 * 1024
@@ -98,4 +98,19 @@ export function applyPacket(base: CoreFrame | null, packet: CorePacket): CoreFra
   if (packet.network === null && base) frame.network = base.network
   if (packet.filesystem === null && base) frame.filesystem = base.filesystem
   return frame
+}
+
+const replaySchema = z.strictObject({
+  checkpoint: z.unknown(), packets: z.array(z.unknown()).max(256), observedMs: safeTime, gap: z.boolean(),
+})
+
+export function reconstructHistory(input: unknown): { frame: CoreFrame; observedMs: number; anchorMs: number; gap: boolean } {
+  const replay = replaySchema.parse(input)
+  const checkpoint = parseHistoricalCheckpoint(replay.checkpoint)
+  let frame = checkpoint.frame
+  for (const raw of replay.packets) frame = applyPacket(frame, packetSchema.parse(raw))
+  if (frame.observedAtUnixMs !== replay.observedMs || replay.observedMs < checkpoint.observedMs) {
+    throw new Error('Historical state timestamp mismatch')
+  }
+  return { frame, observedMs: replay.observedMs, anchorMs: checkpoint.observedMs, gap: replay.gap }
 }

@@ -84,7 +84,9 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             set_recording,
             recording_status,
             history_sessions,
-            history_events
+            history_events,
+            history_checkpoints,
+            history_checkpoint
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -194,4 +196,26 @@ fn history_events(
         return Ok(Vec::new());
     }
     storage::events(&path, &session, since_ms, 100).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn history_checkpoints(
+    state: State<CoreState>, app: tauri::AppHandle, session: String,
+) -> Result<Vec<i64>, String> {
+    state.0.as_ref().map_err(Clone::clone)?;
+    if session.is_empty() || session.len() > 128 { return Err("Invalid history session".into()); }
+    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
+    if !path.exists() { return Ok(Vec::new()); }
+    storage::checkpoint_times(&path, &session).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn history_checkpoint(
+    state: State<CoreState>, app: tauri::AppHandle, session: String, at_ms: i64,
+) -> Result<Option<storage::ReplayInfo>, String> {
+    state.0.as_ref().map_err(Clone::clone)?;
+    if session.is_empty() || session.len() > 128 || at_ms < 0 { return Err("Invalid history query".into()); }
+    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
+    if !path.exists() { return Ok(None); }
+    storage::replay(&path, &session, at_ms).map_err(|error| error.to_string())
 }

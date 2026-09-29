@@ -20,6 +20,7 @@ struct Checkpoint<'a> {
 pub struct Writer {
     connection: Connection,
     session: String,
+    previous: Option<Health>,
     event_cursor: u64,
     checkpoint_at: u64,
     sample_at: u64,
@@ -45,6 +46,23 @@ pub struct EventInfo {
     pub observed_ms: i64,
     pub kind: String,
     pub payload_json: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointInfo {
+    pub sequence: i64,
+    pub observed_ms: i64,
+    pub state: serde_json::Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayInfo {
+    pub checkpoint: CheckpointInfo,
+    pub packets: Vec<serde_json::Value>,
+    pub observed_ms: i64,
+    pub gap: bool,
 }
 
 fn reader(path: &Path) -> Result<Connection> {
@@ -90,6 +108,61 @@ pub fn events(path: &Path, session: &str, since_ms: i64, limit: u32) -> Result<V
     rows
 }
 
+pub fn checkpoint(path: &Path, session: &str, at_ms: i64) -> Result<Option<CheckpointInfo>> {
+    let connection = reader(path)?;
+    let mut statement = connection.prepare(
+        "SELECT sequence, observed_ms, codec, state FROM checkpoints WHERE session_id = ?1 AND codec = 'json' AND observed_ms <= ?2 ORDER BY observed_ms DESC, sequence DESC LIMIT 1"
+    )?;
+    let mut rows = statement.query(params![session, at_ms])?;
+    let Some(row) = rows.next()? else { return Ok(None) };
+    let codec: String = row.get(2)?;
+    let bytes: Vec<u8> = row.get(3)?;
+    if codec != "json" || bytes.len() > MAX_CHECKPOINT_BYTES {
+        return Err(Error::InvalidQuery);
+    }
+    let state = serde_json::from_slice(&bytes).map_err(|_| Error::InvalidQuery)?;
+    Ok(Some(CheckpointInfo { sequence: row.get(0)?, observed_ms: row.get(1)?, state }))
+}
+
+pub fn checkpoint_times(path: &Path, session: &str) -> Result<Vec<i64>> {
+    let connection = reader(path)?;
+    let mut statement = connection.prepare(
+        "SELECT DISTINCT observed_ms FROM checkpoints WHERE session_id = ?1 ORDER BY observed_ms DESC LIMIT 2048"
+    )?;
+    let mut times = statement.query_map([session], |row| row.get(0))?.collect::<Result<Vec<_>>>()?;
+    times.reverse();
+    Ok(times)
+}
+
+pub fn replay(path: &Path, session: &str, at_ms: i64) -> Result<Option<ReplayInfo>> {
+    let Some(checkpoint) = checkpoint(path, session, at_ms)? else { return Ok(None) };
+    let connection = reader(path)?;
+    let mut statement = connection.prepare(
+        "SELECT sequence, observed_ms, codec, state FROM checkpoints WHERE session_id = ?1 AND sequence > ?2 AND observed_ms <= ?3 ORDER BY sequence LIMIT 257"
+    )?;
+    let mut rows = statement.query(params![session, checkpoint.sequence, at_ms])?;
+    let mut packets = Vec::new();
+    let mut observed_ms = checkpoint.observed_ms;
+    let mut previous_sequence = checkpoint.sequence;
+    let mut total_bytes = 0usize;
+    let mut gap = false;
+    while let Some(row) = rows.next()? {
+        if packets.len() == 256 { return Err(Error::InvalidQuery); }
+        let sequence: i64 = row.get(0)?;
+        let codec: String = row.get(2)?;
+        let bytes: Vec<u8> = row.get(3)?;
+        total_bytes = total_bytes.checked_add(bytes.len()).ok_or(Error::InvalidQuery)?;
+        if codec != "delta-json" || total_bytes > MAX_CHECKPOINT_BYTES { return Err(Error::InvalidQuery); }
+        let packet: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| Error::InvalidQuery)?;
+        gap |= sequence != previous_sequence + 1 || packet["events"]["gapCount"].as_str().is_some_and(|count| count != "0")
+            || packet["events"]["rows"].as_array().is_some_and(|events| events.iter().any(|event| event["kind"] == "EVENT_GAP"));
+        previous_sequence = sequence;
+        observed_ms = row.get(1)?;
+        packets.push(packet);
+    }
+    Ok(Some(ReplayInfo { checkpoint, packets, observed_ms, gap }))
+}
+
 impl Writer {
     pub fn start(path: &Path, health: &Health) -> Result<Self> {
         let connection = open(path)?;
@@ -109,6 +182,7 @@ impl Writer {
         let mut writer = Self {
             connection,
             session,
+            previous: None,
             event_cursor: health.processes.events.last_sequence,
             checkpoint_at: health.observed_at_unix_ms,
             sample_at: 0,
@@ -121,6 +195,12 @@ impl Writer {
     }
 
     pub fn record(&mut self, health: &Health, checkpoint: bool) -> Result<()> {
+        if let Some(previous) = &self.previous {
+            let current_sequence = health.sequence.parse::<u64>().map_err(|_| Error::InvalidQuery)?;
+            let previous_sequence = previous.sequence.parse::<u64>().map_err(|_| Error::InvalidQuery)?;
+            if current_sequence < previous_sequence { return Err(Error::InvalidQuery); }
+            if current_sequence == previous_sequence { return Ok(()); }
+        }
         let events = &health.processes.events;
         let oldest = events.rows.first().and_then(|row| row.sequence.parse::<u64>().ok())
             .or_else(|| events.last_sequence.checked_add(1));
@@ -146,6 +226,9 @@ impl Writer {
             Some(bytes)
         } else {
             None
+        };
+        let packet = if due { None } else {
+            Some(crate::stream::encode(1, self.previous.as_ref(), health).map_err(|_| Error::InvalidQuery)?)
         };
         let transaction = self.connection.transaction()?;
         if due {
@@ -203,7 +286,14 @@ impl Writer {
                 )?;
             }
         }
+        if let Some(packet) = &packet {
+            transaction.execute(
+                "INSERT INTO checkpoints(session_id, sequence, observed_ms, codec, state) VALUES (?1, ?2, ?3, 'delta-json', ?4)",
+                params![self.session, checked_ms(health.sequence.parse().map_err(|_| Error::InvalidQuery)?)?, checked_ms(health.observed_at_unix_ms)?, packet.as_bytes()],
+            )?;
+        }
         transaction.commit()?;
+        self.previous = Some(health.clone());
         self.event_cursor = events.last_sequence;
         if filesystem_changed {
             self.filesystem_revision = health.processes.filesystem.revision.clone();
@@ -269,7 +359,7 @@ fn prune_history(connection: &Connection, now_ms: u64) -> Result<()> {
     let sessions = statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>>>()?;
     for session in sessions {
         let anchor: Option<i64> = connection.query_row(
-            "SELECT max(observed_ms) FROM checkpoints WHERE session_id = ?1 AND observed_ms <= ?2",
+            "SELECT max(observed_ms) FROM checkpoints WHERE session_id = ?1 AND codec = 'json' AND observed_ms <= ?2",
             params![session, cutoff],
             |row| row.get(0),
         )?;
@@ -399,6 +489,45 @@ mod tests {
         writer.record(&health, false).unwrap();
         assert_eq!(writer.connection.query_row("SELECT count(*) FROM events", [], |row| row.get::<_, i64>(0)).unwrap(), 3);
         assert_eq!(writer.connection.query_row("SELECT count(*) FROM checkpoints", [], |row| row.get::<_, i64>(0)).unwrap(), 2);
+        let first_ms = health.observed_at_unix_ms as i64 - 60_000;
+        assert!(checkpoint(&path, &writer.session, first_ms - 1).unwrap().is_none());
+        let earlier = checkpoint(&path, &writer.session, first_ms).unwrap().unwrap();
+        assert_eq!(earlier.observed_ms, first_ms);
+        assert_eq!(earlier.state["health"]["sequence"], (health.sequence.parse::<u64>().unwrap() - 1).to_string());
+        let latest = checkpoint(&path, &writer.session, health.observed_at_unix_ms as i64).unwrap().unwrap();
+        assert_eq!(latest.observed_ms, health.observed_at_unix_ms as i64);
+        assert_eq!(latest.state["health"]["sequence"], health.sequence);
+        assert_eq!(checkpoint_times(&path, &writer.session).unwrap(), [first_ms, health.observed_at_unix_ms as i64]);
+        writer.finish(health.observed_at_unix_ms).unwrap();
+        drop(engine);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn replays_bounded_state_packets_after_full_checkpoint() {
+        let directory = std::env::temp_dir().join(format!(
+            "universe-replay-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("history.db");
+        let engine = Engine::new().unwrap();
+        let (_, mut health) = engine.wait(0, 0).unwrap().unwrap();
+        let mut writer = Writer::start(&path, &health).unwrap();
+        let start = health.observed_at_unix_ms as i64;
+        health.observed_at_unix_ms += 1000;
+        health.sequence = (health.sequence.parse::<u64>().unwrap() + 1).to_string();
+        writer.record(&health, false).unwrap();
+        assert!(replay(&path, &writer.session, start - 1).unwrap().is_none());
+        let earlier = replay(&path, &writer.session, start).unwrap().unwrap();
+        assert!(earlier.packets.is_empty());
+        let later = replay(&path, &writer.session, start + 1000).unwrap().unwrap();
+        assert_eq!(later.checkpoint.observed_ms, start);
+        assert_eq!(later.packets.len(), 1);
+        assert_eq!(later.packets[0]["sequence"], health.sequence);
+        assert_eq!(later.observed_ms, start + 1000);
+        assert!(!later.gap);
+        assert_eq!(checkpoint_times(&path, &writer.session).unwrap(), [start, start + 1000]);
         writer.finish(health.observed_at_unix_ms).unwrap();
         drop(engine);
         std::fs::remove_dir_all(directory).unwrap();
