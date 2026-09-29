@@ -30,6 +30,7 @@ function ReferenceGeometry() {
 function Navigation({ reset }: { reset: number }) {
   const controls = useRef<CameraControls>(null)
   const previousView = useRef('')
+  const { gl, invalidate } = useThree()
   const selectedId = useCoreStore(state => state.selected?.id)
   const selectedGalaxyId = useCoreStore(state => state.selectedGalaxy?.id)
   const selectedGalaxyRoot = useCoreStore(state => state.selectedGalaxy?.rootId)
@@ -43,6 +44,26 @@ function Navigation({ reset }: { reset: number }) {
   const aspect = useThree(state => state.size.width / state.size.height)
   const focusRevision = useCoreStore(state => state.focusRevision)
   useEffect(() => () => { renderMetrics.cameraMoving = false }, [])
+  useEffect(() => {
+    const canvas = gl.domElement
+    canvas.setAttribute('tabindex', '0')
+    canvas.setAttribute('aria-label', '3D navigation. Arrow keys orbit; plus and minus zoom.')
+    const navigate = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || !controls.current) return
+      const angle = Math.PI / 24
+      if (event.key === 'ArrowLeft') void controls.current.rotate(-angle, 0, false)
+      else if (event.key === 'ArrowRight') void controls.current.rotate(angle, 0, false)
+      else if (event.key === 'ArrowUp') void controls.current.rotate(0, -angle, false)
+      else if (event.key === 'ArrowDown') void controls.current.rotate(0, angle, false)
+      else if (event.key === '+' || event.key === '=') void controls.current.dolly(6, false)
+      else if (event.key === '-') void controls.current.dolly(-6, false)
+      else return
+      event.preventDefault()
+      invalidate()
+    }
+    canvas.addEventListener('keydown', navigate)
+    return () => canvas.removeEventListener('keydown', navigate)
+  }, [gl, invalidate])
   useEffect(() => {
     const transition = !matchMedia('(prefers-reduced-motion: reduce)').matches
     const viewKey = `${mode}/${aspect}/${reset}/${mode === 'filesystem' ? fileScope : ''}`

@@ -26,4 +26,17 @@ it('opens and closes factual diagnostics', async () => {
   expect(screen.getByRole('complementary')).toHaveTextContent('History off')
   fireEvent.click(screen.getByRole('button', { name: 'Close diagnostics' }))
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Engine diagnostics' })).toHaveFocus()
+})
+
+it.each([
+  ['Process list', 'Close process list'],
+  ['Galaxy list', 'Close galaxy list'],
+  ['Recent activity', 'Close activity'],
+])('returns focus to %s when its panel closes', async (trigger, close) => {
+  render(<Shell />)
+  await screen.findByLabelText('Test viewport')
+  fireEvent.click(screen.getByRole('button', { name: trigger }))
+  fireEvent.click(screen.getByRole('button', { name: close }))
+  expect(screen.getByRole('button', { name: trigger })).toHaveFocus()
 })

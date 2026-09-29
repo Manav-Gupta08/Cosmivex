@@ -271,6 +271,19 @@ try {
   await expect(async () => {
     expect((await page.locator('canvas').screenshot()).equals(desktop.screenshot)).toBe(false)
   }).toPass({ timeout: 5000 })
+  await page.locator('canvas').focus()
+  await expect(page.locator('canvas')).toBeFocused()
+  await expect(page.locator('canvas')).toHaveAttribute('tabindex', '0')
+  const beforeKeyboard = await page.locator('canvas').screenshot()
+  await page.keyboard.press('ArrowLeft')
+  await expect(async () => {
+    expect((await page.locator('canvas').screenshot()).equals(beforeKeyboard)).toBe(false)
+  }).toPass({ timeout: 5000 })
+  const beforeZoom = await page.locator('canvas').screenshot()
+  await page.keyboard.press('Equal')
+  await expect(async () => {
+    expect((await page.locator('canvas').screenshot()).equals(beforeZoom)).toBe(false)
+  }).toPass({ timeout: 5000 })
   await page.getByRole('button', { name: 'Reset camera' }).click()
   await page.getByRole('button', { name: 'Engine diagnostics' }).click()
   await expect(page.getByRole('complementary')).toBeVisible()
