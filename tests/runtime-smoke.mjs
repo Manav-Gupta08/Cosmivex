@@ -61,6 +61,30 @@ async function selectedStarPixels() {
   }, [...screenshot])
 }
 
+async function verifyHistory() {
+  const checkbox = page.getByRole('checkbox', { name: 'Record local history' })
+  await expect(checkbox).not.toBeChecked()
+  await checkbox.click()
+  await expect(checkbox).toBeChecked({ timeout: 10000 })
+  const sessions = () => page.evaluate(() => window.__TAURI_INTERNALS__.invoke('history_sessions'))
+  await expect.poll(async () => (await sessions()).find(session => session.endedMs === null)?.id, { timeout: 10000 }).not.toBeUndefined()
+  const session = (await sessions()).find(row => row.endedMs === null)
+  expect(session).toBeDefined()
+  const workload = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 15000)'], { windowsHide: true })
+  try {
+    await expect.poll(async () => {
+      const rows = await page.evaluate(id => window.__TAURI_INTERNALS__.invoke('history_events', { session: id, sinceMs: 0 }), session.id)
+      return rows.some(row => row.payloadJson.includes(`"pid":${workload.pid}`))
+    }, { timeout: 12000 }).toBe(true)
+  } finally {
+    if (workload.exitCode === null) workload.kill()
+    await checkbox.click()
+  }
+  await expect(checkbox).not.toBeChecked({ timeout: 10000 })
+  await expect.poll(async () => (await sessions()).find(row => row.id === session.id)?.endedMs, { timeout: 10000 }).toBeGreaterThan(0)
+  console.log(JSON.stringify({ historyOptIn: true, recordedPid: workload.pid, sessionClosed: true }))
+}
+
 async function verifyResources() {
   const probe = fork(new URL('./process-workload.mjs', import.meta.url), ['--resource-probe'], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true })
   const command = value => new Promise((resolve, reject) => {
@@ -375,6 +399,7 @@ try {
   } else {
     await expect(page.getByRole('button', { name: 'Eco profile' })).toBeDisabled()
     await expect(page.getByTestId('sequence')).toHaveText('Unavailable')
+    await expect(page.getByRole('checkbox', { name: 'Record local history' })).toBeDisabled()
   }
   if (native) {
     await expect(page.getByTestId('camera-motion')).toHaveText('Still', { timeout: 10000 })
@@ -397,6 +422,7 @@ try {
   await page.screenshot({ path: `artifacts/${native ? 'native' : 'browser'}-diagnostics.png` })
   if (native) console.log(await page.getByRole('complementary').innerText())
   if (native) await page.getByRole('checkbox', { name: 'Resource visuals' }).check()
+  if (native) await verifyHistory()
   await page.getByRole('button', { name: 'Close diagnostics' }).click()
   await page.setViewportSize({ width: 400, height: 740 })
   const mobile = await canvasIsVisible()

@@ -6,9 +6,9 @@ mod network;
 mod process;
 mod stream;
 mod universe;
-pub mod storage;
+mod storage;
 
-use bridge::{Bridge, Frame};
+use bridge::{Bridge, Frame, RecordingStatus};
 use native::Profile;
 use tauri::{ipc::Channel, Manager, State};
 
@@ -80,7 +80,11 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             set_network_collection,
             filesystem_root,
             filesystem_navigate,
-            filesystem_stop
+            filesystem_stop,
+            set_recording,
+            recording_status,
+            history_sessions,
+            history_events
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -139,4 +143,55 @@ fn filesystem_stop(state: State<CoreState>) -> Result<(), String> {
         .as_ref()
         .map_err(Clone::clone)?
         .filesystem_command(2, "", 0, 0)
+}
+
+#[tauri::command]
+fn set_recording(
+    state: State<CoreState>,
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<RecordingStatus, String> {
+    let bridge = state.0.as_ref().map_err(Clone::clone)?;
+    if enabled {
+        let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
+        bridge.start_recording(&directory)
+    } else {
+        bridge.stop_recording()
+    }
+}
+
+#[tauri::command]
+fn recording_status(state: State<CoreState>) -> Result<RecordingStatus, String> {
+    state.0.as_ref().map_err(Clone::clone)?.recording_status()
+}
+
+#[tauri::command]
+fn history_sessions(
+    state: State<CoreState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<storage::SessionInfo>, String> {
+    state.0.as_ref().map_err(Clone::clone)?;
+    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    storage::sessions(&path, 50).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn history_events(
+    state: State<CoreState>,
+    app: tauri::AppHandle,
+    session: String,
+    since_ms: i64,
+) -> Result<Vec<storage::EventInfo>, String> {
+    state.0.as_ref().map_err(Clone::clone)?;
+    if session.len() > 128 || since_ms < 0 {
+        return Err("Invalid history query".into());
+    }
+    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    storage::events(&path, &session, since_ms, 100).map_err(|error| error.to_string())
 }

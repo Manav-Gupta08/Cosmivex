@@ -1,9 +1,12 @@
 use crate::native::{Engine, Health, Profile};
+use crate::storage::Writer;
 pub use crate::stream::Frame;
 use crate::stream::{self, Transfer};
+use serde::Serialize;
+use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    mpsc::{self, SyncSender, TrySendError}, Arc, Mutex,
 };
 use std::thread::JoinHandle;
 use tauri::ipc::Channel;
@@ -20,6 +23,20 @@ struct Delivery {
     latest: (u64, Health),
     next_id: u32,
     subscriber: Option<Subscriber>,
+}
+
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingStatus {
+    pub enabled: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Default)]
+struct Recording {
+    sender: Option<SyncSender<Health>>,
+    worker: Option<JoinHandle<()>>,
+    status: RecordingStatus,
 }
 
 impl Delivery {
@@ -69,6 +86,7 @@ impl Delivery {
 pub struct Bridge {
     engine: Arc<Engine>,
     delivery: Arc<Mutex<Delivery>>,
+    recording: Arc<Mutex<Recording>>,
     stopping: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
@@ -84,8 +102,10 @@ impl Bridge {
             subscriber: None,
         }));
         let stopping = Arc::new(AtomicBool::new(false));
+        let recording = Arc::new(Mutex::new(Recording::default()));
         let (worker_engine, worker_delivery, worker_stopping) =
             (engine.clone(), delivery.clone(), stopping.clone());
+        let worker_recording = recording.clone();
         let worker = std::thread::Builder::new()
             .name("core-bridge".into())
             .spawn(move || {
@@ -94,6 +114,14 @@ impl Bridge {
                     match worker_engine.wait(after, 30000) {
                         Ok(Some(latest)) => {
                             after = latest.0;
+                            if let Ok(recording) = worker_recording.lock() {
+                                if let Some(sender) = &recording.sender {
+                                    match sender.try_send(latest.1.clone()) {
+                                        Ok(()) | Err(TrySendError::Full(_)) => {}
+                                        Err(TrySendError::Disconnected(_)) => {}
+                                    }
+                                }
+                            }
                             let Ok(mut delivery) = worker_delivery.lock() else {
                                 break;
                             };
@@ -112,6 +140,7 @@ impl Bridge {
         Ok(Self {
             engine,
             delivery,
+            recording,
             stopping,
             worker: Mutex::new(Some(worker)),
         })
@@ -217,7 +246,73 @@ impl Bridge {
         self.engine.filesystem_command(action, root, scope, entry)
     }
 
+    pub fn recording_status(&self) -> Result<RecordingStatus, String> {
+        self.recording.lock().map(|state| state.status.clone()).map_err(|_| "Recording state unavailable".into())
+    }
+
+    pub fn start_recording(&self, directory: &Path) -> Result<RecordingStatus, String> {
+        if self.recording_status()?.enabled {
+            return self.recording_status();
+        }
+        self.stop_recording()?;
+        let health = self.delivery.lock().map_err(|_| "Core bridge unavailable")?.latest.1.clone();
+        let writer = (|| {
+            std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+            Writer::start(&directory.join("history.sqlite"), &health).map_err(|error| error.to_string())
+        })().inspect_err(|error| {
+            if let Ok(mut state) = self.recording.lock() {
+                state.status.error = Some(error.clone());
+            }
+        })?;
+        let (sender, receiver) = mpsc::sync_channel::<Health>(1);
+        let recording = self.recording.clone();
+        let worker = std::thread::Builder::new()
+            .name("history-writer".into())
+            .spawn(move || {
+                let mut writer = writer;
+                let mut ended_ms = health.observed_at_unix_ms;
+                for next in receiver {
+                    ended_ms = next.observed_at_unix_ms;
+                    if let Err(error) = writer.record(&next, false) {
+                        if let Ok(mut state) = recording.lock() {
+                            state.sender = None;
+                            state.status = RecordingStatus { enabled: false, error: Some(error.to_string()) };
+                        }
+                        break;
+                    }
+                }
+                if let Err(error) = writer.finish(ended_ms) {
+                    if let Ok(mut state) = recording.lock() {
+                        state.sender = None;
+                        if state.status.error.is_none() {
+                            state.status = RecordingStatus { enabled: false, error: Some(error.to_string()) };
+                        }
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        let mut state = self.recording.lock().map_err(|_| "Recording state unavailable")?;
+        state.sender = Some(sender);
+        state.worker = Some(worker);
+        state.status = RecordingStatus { enabled: true, error: None };
+        Ok(state.status.clone())
+    }
+
+    pub fn stop_recording(&self) -> Result<RecordingStatus, String> {
+        let worker = {
+            let mut state = self.recording.lock().map_err(|_| "Recording state unavailable")?;
+            state.sender = None;
+            state.status = RecordingStatus::default();
+            state.worker.take()
+        };
+        if let Some(worker) = worker {
+            worker.join().map_err(|_| "History writer stopped unexpectedly")?;
+        }
+        self.recording_status()
+    }
+
     pub fn shutdown(&self) {
+        let _ = self.stop_recording();
         self.stopping.store(true, Ordering::Release);
         self.engine.stop();
         if let Ok(mut worker) = self.worker.lock() {
@@ -238,6 +333,40 @@ impl Drop for Bridge {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn recording_is_opt_in_and_closes_its_session() {
+        let directory = std::env::temp_dir().join(format!(
+            "universe-bridge-history-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let bridge = Bridge::new().unwrap();
+        assert!(!bridge.recording_status().unwrap().enabled);
+        assert!(!directory.exists());
+        std::fs::create_dir(&directory).unwrap();
+        let invalid_directory = directory.join("file");
+        std::fs::write(&invalid_directory, b"not a directory").unwrap();
+        assert!(bridge.start_recording(&invalid_directory).is_err());
+        assert!(bridge.recording_status().unwrap().error.is_some());
+        assert!(bridge.start_recording(&directory).unwrap().enabled);
+        let initial_sequence = bridge.delivery.lock().unwrap().latest.0;
+        bridge.set_profile(Profile::Eco).unwrap();
+        assert!(bridge.engine.wait(initial_sequence, 5000).unwrap().is_some());
+        assert!(bridge.recording_status().unwrap().enabled);
+        assert!(bridge.stop_recording().is_ok());
+        assert!(!bridge.recording_status().unwrap().enabled);
+        bridge.shutdown();
+        let connection = crate::storage::open(&directory.join("history.sqlite")).unwrap();
+        let (sessions, closed, checkpoints): (i64, i64, i64) = connection.query_row(
+            "SELECT count(*), count(ended_ms), (SELECT count(*) FROM checkpoints) FROM sessions",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        ).unwrap();
+        assert_eq!((sessions, closed, checkpoints), (1, 1, 1));
+        assert_eq!(crate::storage::sessions(&directory.join("history.sqlite"), 1).unwrap().len(), 1);
+        drop(connection);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn channel_has_one_in_flight_and_replacement_is_safe() {

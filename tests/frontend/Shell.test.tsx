@@ -21,6 +21,8 @@ it('opens and closes factual diagnostics', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Engine diagnostics' }))
   expect(screen.getByRole('complementary')).toBeInTheDocument()
   expect(screen.getByTestId('sequence')).toHaveTextContent('Unavailable')
+  expect(screen.getByRole('checkbox', { name: 'Record local history' })).toBeDisabled()
+  expect(screen.getByRole('complementary')).toHaveTextContent('History off')
   fireEvent.click(screen.getByRole('button', { name: 'Close diagnostics' }))
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
 })

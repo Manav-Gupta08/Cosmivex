@@ -5,7 +5,7 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 7 is implemented and functionally verified in the actual Windows application. Real
+Phase 8 is implemented and functionally verified in the actual Windows application. Real
 Windows processes appear as instanced stars in selectable, inferred galaxies.
 Switch between the galaxy universe and process hierarchy, search by name/PID,
 inspect processes or groups, and navigate validated parent links. Relationships,
@@ -29,14 +29,19 @@ with validated ancestry and identical observed executable paths share a galaxy.
 It is not an OS application registry; cross-image helpers can remain separate.
 The opt-in File System view observes one selected local directory at a time,
 non-recursively, with scoped navigation, bounded recent changes, metadata
-inspection and instanced file/directory objects. It never reads file contents;
-SQLite recording, replay, and large-count LOD benchmarks remain later phases.
+inspection and instanced file/directory objects. It never reads file contents.
+Local SQLite recording is opt-in from diagnostics and starts a new session at
+the current observation. It records bounded process events, changed network
+and filesystem metadata, periodic checkpoints and 10-second resource buckets.
+Recorded sessions can be inspected without enabling recording. Timeline/replay
+and large-count LOD benchmarks remain later phases.
 The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 7 verification](docs/phase-7.md) for current results and open concerns;
+See [Phase 8 verification](docs/phase-8.md) for current results and open concerns;
+[Phase 7 verification](docs/phase-7.md) preserves filesystem results;
 [Phase 6 verification](docs/phase-6.md) preserves network results;
 [Phase 5 verification](docs/phase-5.md) preserves resource-mapping results and the unresolved CPU outlier;
 [Phase 4 verification](docs/phase-4.md) preserves the streaming/lifecycle baseline;
@@ -123,6 +128,9 @@ Filesystem tests use a controlled temporary local directory to check real
 create/modify/rename/delete, scope-safe navigation, direct picking, idle watch
 stability and unchanged file contents. Run the native smoke and idle measurement
 separately; both launch their own release desktop instance.
+The native smoke also enables history explicitly, starts a controlled process,
+queries its recorded event and verifies that disabling recording closes the
+session. This verification writes a test session to the user's app-data history.
 
 For investigating WebView CPU, `node tests/profile-resources.mjs` starts its own
 release app with loopback CDP on port 9224, captures 15-second CPU profiles with
@@ -164,6 +172,11 @@ PNG/ICO assets are committed so building does not require regenerating them.
   wire-payload throughput, delta/full-state counts and event cursors. The resync
   button requests a fresh complete state. GPU timing, CPU attribution, and memory readouts are
   explicitly unavailable in-app until those measurements are implemented.
+- Diagnostics has an off-by-default local-history checkbox and a list of up to
+  50 recorded sessions. Recording writes to the user's app-data directory;
+  disabling it closes the session. Storage errors disable recording and are
+  shown without stopping live observation. The bounded event query is available
+  through native IPC; timeline navigation and replay are not implemented.
 - Eco: 2 s wait between process collections, 30 fps draw ceiling, pixel ratio 1,
   no MSAA. With collection off, health cadence reduces to 5 s.
 - Normal: 1 s wait between collections, 60 fps draw ceiling, pixel ratio 1, no MSAA.
@@ -206,15 +219,24 @@ PNG/ICO assets are committed so building does not require regenerating them.
   process-only delta. Its topology layout is reused across interface counter changes.
   A filesystem snapshot is attached only when its revision changes or on resync;
   idle watches reuse the last state rather than repeatedly enumerating a directory.
+- An independent single-slot writer queue keeps SQLite operations off the native
+  collection and UI delivery path. If it misses process events, the next
+  available event window records a gap. Recording writes a full checkpoint at
+  start and about every 60 seconds; 24-hour retention preserves a preceding
+  checkpoint. The database uses a 256 MiB page limit, not a hard bound on all
+  auxiliary WAL files. Recording stops on storage failure instead of claiming
+  complete history. No recording starts without explicit consent.
 - CPU uses 0-100% of total logical processor capacity; working set is not private
   memory. Sampling may miss short-lived processes. At most 4,096 processes are
-  collected; any truncation is explicit. No history writes.
+  collected; any truncation is explicit.
 
 ## Privacy and Git workflow
 
 No packet payload capture, file-content reading, process control, filesystem
-mutation, elevated tracing, AI APIs, or history database. The recent event journal
-is bounded volatile metadata, not persistent history/replay. WebView2 may
+mutation, elevated tracing or AI APIs. When enabled, the local SQLite history
+contains potentially sensitive process names, paths, network endpoints and
+filesystem metadata. The recent UI event journal remains volatile; saved history
+is a separate opt-in database, not a replay engine. WebView2 may
 maintain its standard application profile/cache; that is separate from telemetry
 history. All fonts and assets are packaged locally. Diagnostic test fixtures are
 test-only and never included as production system observations.

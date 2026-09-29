@@ -91,3 +91,19 @@ export async function setNetworkCollection(enabled: boolean): Promise<void> {
 export async function openFilesystemRoot(path: string): Promise<void> { await invoke('filesystem_root', { path }) }
 export async function navigateFilesystem(scope: string, entry: string): Promise<void> { await invoke('filesystem_navigate', { scope, entry }) }
 export async function stopFilesystem(): Promise<void> { await invoke('filesystem_stop') }
+
+export type RecordingStatus = { enabled: boolean; error: string | null }
+
+export async function readRecordingStatus(): Promise<RecordingStatus> {
+  return invoke<RecordingStatus>('recording_status')
+}
+
+export async function setRecording(enabled: boolean): Promise<RecordingStatus> {
+  return invoke<RecordingStatus>('set_recording', { enabled })
+}
+
+export type HistorySession = { id: string; startedMs: number; endedMs: number | null; protocolVersion: number; appVersion: string }
+
+export async function readHistorySessions(): Promise<HistorySession[]> {
+  return invoke<HistorySession[]>('history_sessions')
+}

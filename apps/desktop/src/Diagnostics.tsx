@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { RefreshCw, X } from 'lucide-react'
 import { useCoreStore } from './state/core'
 import { renderMetrics } from '../universe/metrics'
-import { resyncCore } from './transport'
+import { readHistorySessions, readRecordingStatus, resyncCore, setRecording, type HistorySession, type RecordingStatus } from './transport'
 
 export function Diagnostics({ close }: { close: () => void }) {
   const frame = useCoreStore(state => state.frame)
@@ -15,6 +15,18 @@ export function Diagnostics({ close }: { close: () => void }) {
   const evictions = useCoreStore(state => state.evictedEvents)
   const resourceVisuals = useCoreStore(state => state.resourceVisuals)
   const [metrics, setMetrics] = useState({ fps: 0, bytesPerSecond: 0, ...renderMetrics })
+  const [recording, setRecordingState] = useState<RecordingStatus>({ enabled: false, error: null })
+  const [recordingBusy, setRecordingBusy] = useState(false)
+  const [sessions, setSessions] = useState<HistorySession[]>([])
+  useEffect(() => {
+    if (status !== 'connected') return
+    let active = true
+    const refresh = () => { void readRecordingStatus().then(value => { if (active) setRecordingState(value) }).catch((error: unknown) => { if (active) setRecordingState({ enabled: false, error: String(error) }) }) }
+    refresh()
+    void readHistorySessions().then(value => { if (active) setSessions(value) }).catch(() => {})
+    const timer = setInterval(refresh, 2000)
+    return () => { active = false; clearInterval(timer) }
+  }, [status])
   useEffect(() => {
     let previousTime = performance.now()
     let previousFrames = renderMetrics.frames
@@ -77,6 +89,18 @@ export function Diagnostics({ close }: { close: () => void }) {
     </dl></div>
     <button className="focus-process" disabled={status !== 'connected'} onClick={() => { void resyncCore().catch((error: unknown) => useCoreStore.getState().fail(String(error))) }}><RefreshCw size={15} /> Resync stream</button>
     <label className="activity-filter"><input type="checkbox" aria-label="Resource visuals" checked={resourceVisuals} onChange={event => useCoreStore.getState().setResourceVisuals(event.target.checked)} /> Resource visuals</label>
-    <div className="panel-section"><h3>Collection permissions</h3><p>Standard user. {frame?.enabledCollectors || frame?.network.enabled ? 'Metadata only. No packet payloads.' : 'Collection off.'} History off.</p></div>
+    <div className="panel-section"><h3>Local history</h3>
+      <label className="activity-filter"><input type="checkbox" aria-label="Record local history" checked={recording.enabled} disabled={status !== 'connected' || recordingBusy} onChange={event => {
+        setRecordingBusy(true)
+        void setRecording(event.target.checked).then(value => {
+          setRecordingState(value)
+          return readHistorySessions().then(setSessions)
+        }).catch((error: unknown) => setRecordingState({ enabled: false, error: String(error) })).finally(() => setRecordingBusy(false))
+      }} /> Record local history</label>
+      {sessions.length > 0 && <><div className="panel-heading"><h3>Recorded sessions ({sessions.length}{sessions.length === 50 ? '+' : ''})</h3><button className="icon-button" title="Refresh recorded sessions" aria-label="Refresh recorded sessions" onClick={() => { void readHistorySessions().then(setSessions).catch((error: unknown) => setRecordingState({ ...recording, error: String(error) })) }}><RefreshCw size={15} /></button></div>
+        <ul className="history-sessions">{sessions.map(session => <li key={session.id}><time dateTime={new Date(session.startedMs).toISOString()}>{new Date(session.startedMs).toLocaleString()}</time><span>{session.endedMs === null ? 'Active' : 'Closed'}</span></li>)}</ul></>}
+      {recording.error && <p role="alert">Recording stopped: {recording.error}</p>}
+    </div>
+    <div className="panel-section"><h3>Collection permissions</h3><p>Standard user. {frame?.enabledCollectors || frame?.network.enabled ? 'Metadata only. No packet payloads.' : 'Collection off.'} History {recording.enabled ? 'on' : 'off'}.</p></div>
   </aside>
 }
