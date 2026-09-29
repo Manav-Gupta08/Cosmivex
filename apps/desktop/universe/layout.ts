@@ -25,10 +25,26 @@ export interface UniverseLayout {
   hierarchyOrder: string[]
 }
 
+export function selectLodIds(ids: readonly string[], selectedId: string | null | undefined, limit: number): string[] {
+  if (ids.length <= limit) return ids as string[]
+  if (limit < 1) return []
+  const ranked = ids.map(id => {
+    let hash = 2166136261
+    for (const character of id) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619)
+    return { id, hash: hash >>> 0 }
+  })
+  ranked.sort((left, right) => left.hash - right.hash || left.id.localeCompare(right.id))
+  const visible = ranked.slice(0, limit).map(row => row.id)
+  if (selectedId && ids.includes(selectedId) && !visible.includes(selectedId)) visible[limit - 1] = selectedId
+  return visible
+}
+
 export function buildLayout(snapshot: ProcessSnapshot, previous?: UniverseLayout): UniverseLayout {
-  const key = snapshot.rows.map(row => `${row.id}/${row.parentId}/${row.galaxyId}/${row.depth}`).join('|')
-    + ';' + snapshot.galaxies.map(group => `${group.id}/${group.rootId}/${group.processCount}`).join('|')
-  if (previous?.key === key) return previous
+  const key = snapshot.galaxies.map(group => `${group.id}/${group.rootId}/${group.processCount}`).join('|')
+  if (previous?.key === key && previous.nodes.length === snapshot.rows.length && snapshot.rows.every((row, index) => {
+    const node = previous.nodes[index]
+    return node.id === row.id && node.parentId === row.parentId && node.galaxyId === row.galaxyId && node.depth === row.depth
+  })) return previous
   const nodes = snapshot.rows.map(({ id, parentId, galaxyId, depth }) => ({ id, parentId, galaxyId, depth }))
   const layout: UniverseLayout = { key, nodes, universe: new Map(), hierarchy: new Map(), galaxyPositions: new Map(), galaxyRadii: new Map(), hierarchyOrder: [] }
   const groups = new Map(snapshot.galaxies.map(group => [group.id, group]))

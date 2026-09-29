@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useThree, type ThreeEvent } from '@react-three/fiber'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Color, DynamicDrawUsage, InstancedMesh, Object3D, SphereGeometry } from 'three'
 import { useCoreStore } from '../src/state/core'
-import { galaxyColor } from './layout'
+import { galaxyColor, selectLodIds } from './layout'
 import { renderMetrics } from './metrics'
 import { mergeUpdateRange, resourceAppearance } from './resources'
 
@@ -11,6 +11,12 @@ interface CachedStar { id: string; scale: number; color: string; intensity: numb
 export function ProcessStars() {
   const ids = useCoreStore(state => state.processIds)
   const selectedId = useCoreStore(state => state.selected?.id)
+  const [far, setFar] = useState(true)
+  useFrame(({ camera }) => {
+    const distance = camera.position.length()
+    if (far ? distance < 60 : distance > 75) setFar(!far)
+  })
+  const visibleIds = useMemo(() => far ? selectLodIds(ids, selectedId, 1024) : ids, [far, ids, selectedId])
   const selectedGalaxyId = useCoreStore(state => state.selectedGalaxy?.id)
   const layout = useCoreStore(state => state.layout)
   const viewMode = useCoreStore(state => state.viewMode === 'hierarchy' ? 'hierarchy' : 'universe')
@@ -29,7 +35,7 @@ export function ProcessStars() {
     const color = new Color()
     const nodes = new Map(layout.nodes.map(node => [node.id, node]))
     const groups: string[][] = [[], []]
-    for (const id of ids) groups[enabled && resources?.get(id)?.memoryLevel === null ? 1 : 0].push(id)
+    for (const id of visibleIds) groups[enabled && resources?.get(id)?.memoryLevel === null ? 1 : 0].push(id)
     const positions = layout[viewMode]
     let changed = false
     let matrixEdits = 0
@@ -69,12 +75,12 @@ export function ProcessStars() {
     }
     picking.current = groups
     cache.current = { positions, batches: nextCache }
-    renderMetrics.processInstances = ids.length
+    renderMetrics.processInstances = visibleIds.length
     renderMetrics.unknownMemoryInstances = groups[1].length
     renderMetrics.resourceMatrixEdits += matrixEdits
     renderMetrics.resourceColorEdits += colorEdits
     if (changed) invalidate()
-  }, [ids, selectedId, selectedGalaxyId, layout, viewMode, resources, enabled, invalidate])
+  }, [visibleIds, selectedId, selectedGalaxyId, layout, viewMode, resources, enabled, invalidate])
   function choose(event: ThreeEvent<MouseEvent>, batch: number) {
     const id = event.instanceId === undefined ? undefined : picking.current[batch][event.instanceId]
     if (id) { event.stopPropagation(); useCoreStore.getState().select(id) }
