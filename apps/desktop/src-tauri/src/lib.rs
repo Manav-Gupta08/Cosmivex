@@ -6,6 +6,7 @@ mod network;
 mod process;
 mod stream;
 mod universe;
+pub mod storage;
 
 use bridge::{Bridge, Frame};
 use native::Profile;
