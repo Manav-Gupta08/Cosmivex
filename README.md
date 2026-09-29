@@ -5,7 +5,10 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 9 is implemented and functionally verified in the actual Windows application. Real
+Phase 9 is implemented and functionally verified in the actual Windows application.
+Phase 10 has isolated large-count benchmarks and bounded renderer work; Phase 11
+adds keyboard viewport navigation and focus restoration. Both remain in progress
+pending representative active-load and accessibility qualification. Real
 Windows processes appear as instanced stars in selectable, inferred galaxies.
 Switch between the galaxy universe and process hierarchy, search by name/PID,
 inspect processes or groups, and navigate validated parent links. Relationships,
@@ -35,14 +38,17 @@ the current observation. It records bounded process events, changed network
 and filesystem metadata, periodic checkpoints and 10-second resource buckets.
 Recorded sessions can be explored in a separate read-only 3D replay view with
 checkpoint seeking, recorded process selection and bounded event evidence.
-Replay never replaces live observations. Large-count LOD benchmarks remain
-a later phase.
+Replay never replaces live observations. Synthetic 10k/50k/100k layout and
+LOD benchmarks run outside the live store and history; native observation
+still caps process instances at 4,096.
 The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 9 verification](docs/phase-9.md) for current results and open concerns;
+See [Phase 11 progress](docs/phase-11.md) for accessibility and idle results;
+[Phase 10 progress](docs/phase-10.md) for isolated scaling measurements;
+[Phase 9 verification](docs/phase-9.md) for replay results;
 [Phase 8 verification](docs/phase-8.md) preserves recording results;
 [Phase 7 verification](docs/phase-7.md) preserves filesystem results;
 [Phase 6 verification](docs/phase-6.md) preserves network results;
@@ -150,6 +156,8 @@ PNG/ICO assets are committed so building does not require regenerating them.
 ## Operation and efficiency
 
 - Drag to orbit, right-drag to pan, scroll to zoom; crosshair resets the camera.
+- Tab to the 3D viewport to orbit with arrow keys or zoom with `+`/`-`;
+  closing a list or diagnostics returns focus to its toolbar button.
 - Click a process star, or search a name/exact PID and press Enter, to focus and
   inspect it. The list button opens at most 50 rows at a time with sorting/paging.
 - Use Universe/Hierarchy/Network to switch spatial layouts. The process list can use
