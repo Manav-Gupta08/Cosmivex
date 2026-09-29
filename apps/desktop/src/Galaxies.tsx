@@ -20,7 +20,7 @@ export function GalaxyBrowser({ close }: { close: () => void }) {
   </aside>
 }
 
-export function GalaxyInspector() {
+export function GalaxyInspector({ close = () => useCoreStore.getState().selectGalaxy(null) }: { close?: () => void }) {
   const group = useCoreStore(state => state.selectedGalaxy)
   const frame = useCoreStore(state => state.frame)
   const connection = useCoreStore(state => state.status)
@@ -32,7 +32,7 @@ export function GalaxyInspector() {
   const status = connection !== 'connected' ? 'Last observation / stream stale' : frame?.enabledCollectors === 0 ? 'Collection off'
     : frame?.processes.error ? 'Collection unavailable' : present ? 'Inferred galaxy' : 'No longer observed'
   return <aside className="diagnostics galaxy-inspector" aria-label="Galaxy details">
-    <div className="panel-heading"><h2>{group.label}</h2><button className="icon-button" aria-label="Close galaxy details" title="Close galaxy details" onClick={() => useCoreStore.getState().selectGalaxy(null)}><X size={17} /></button></div>
+    <div className="panel-heading"><h2>{group.label}</h2><button className="icon-button" aria-label="Close galaxy details" title="Close galaxy details" onClick={close}><X size={17} /></button></div>
     <span className="process-status" data-testid="galaxy-status">{status}</span>
     <div className="panel-section"><h3>Observed membership</h3><dl>
       <dt>Root PID</dt><dd data-testid="galaxy-root-pid">{group.rootId.split(':')[0]}</dd>

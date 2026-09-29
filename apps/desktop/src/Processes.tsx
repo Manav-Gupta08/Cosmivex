@@ -46,7 +46,7 @@ export function ProcessBrowser({ close }: { close: () => void }) {
   </aside>
 }
 
-export function ProcessInspector() {
+export function ProcessInspector({ close = () => useCoreStore.getState().select(null) }: { close?: () => void }) {
   const process = useCoreStore(state => state.selected)
   const frame = useCoreStore(state => state.frame)
   const connection = useCoreStore(state => state.status)
@@ -57,7 +57,7 @@ export function ProcessInspector() {
   const state = connection !== 'connected' ? 'Last observation / stream stale' : frame?.enabledCollectors === 0 ? 'Collection off'
     : frame?.processes.error ? 'Collection unavailable' : present ? 'Observed' : 'No longer observed'
   return <aside className="diagnostics process-inspector" aria-label="Process details">
-    <div className="panel-heading"><h2 title={process.name}>{process.name || 'Unnamed process'}</h2><button className="icon-button" aria-label="Close process details" title="Close process details" onClick={() => useCoreStore.getState().select(null)}><X size={17} /></button></div>
+    <div className="panel-heading"><h2 title={process.name}>{process.name || 'Unnamed process'}</h2><button className="icon-button" aria-label="Close process details" title="Close process details" onClick={close}><X size={17} /></button></div>
     <span className="process-status" data-testid="process-status">{state}</span>
     <div className="panel-section"><h3>Process observation</h3><dl>
       <dt>PID</dt><dd data-testid="process-pid">{process.pid}</dd>

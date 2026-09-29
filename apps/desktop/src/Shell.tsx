@@ -46,11 +46,19 @@ export default function Shell() {
   const [reset, setReset] = useState(0)
   const [pending, setPending] = useState(false)
   const [replaying, setReplaying] = useState(false)
+  const replayButton = useRef<HTMLButtonElement>(null)
+  const returningFromReplay = useRef(false)
   const diagnosticsButton = useRef<HTMLButtonElement>(null)
   const listButton = useRef<HTMLButtonElement>(null)
   const galaxiesButton = useRef<HTMLButtonElement>(null)
   const activityButton = useRef<HTMLButtonElement>(null)
   useEffect(() => connectCore(), [connectionAttempt])
+  useEffect(() => {
+    if (!replaying && returningFromReplay.current) {
+      replayButton.current?.focus()
+      returningFromReplay.current = false
+    }
+  }, [replaying])
   const showDiagnostics = diagnostics && panelRevision === focusRevision
   const showList = listOpen && panelRevision === focusRevision
   const showGalaxies = galaxiesOpen && panelRevision === focusRevision
@@ -79,7 +87,7 @@ export default function Shell() {
   const filesystemState = !frame?.filesystem.root ? 'No folder selected' : frame.filesystem.error ? `Directory error / Win32 ${frame.filesystem.error}`
     : frame.filesystem.watchError ? `Watch error / Win32 ${frame.filesystem.watchError}` : frame.filesystem.watching ? 'Watching direct children' : 'Watch stopped'
 
-  if (replaying) return <Replay close={() => setReplaying(false)} />
+  if (replaying) return <Replay close={() => { returningFromReplay.current = true; setReplaying(false) }} />
 
   return <main className="app-shell" data-view={mode}>
     <RendererBoundary><Suspense fallback={<div className="renderer-fallback">Opening viewport</div>}><UniverseScene profile={frame?.profile ?? 'eco'} reset={reset} /></Suspense></RendererBoundary>
@@ -101,7 +109,7 @@ export default function Shell() {
       {(mode === 'universe' || mode === 'hierarchy') && <button ref={galaxiesButton} className={`icon-button ${showGalaxies ? 'selected' : ''}`} aria-label="Galaxy list" title="Galaxy list" aria-expanded={showGalaxies} onClick={() => { setGalaxiesOpen(!showGalaxies); setListOpen(false); setActivityOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><Orbit size={19} /></button>}
       <button ref={listButton} className={`icon-button ${showList ? 'selected' : ''}`} aria-label={mode === 'filesystem' ? 'Filesystem list' : mode === 'network' ? 'Network list' : 'Process list'} title="Observed records" aria-expanded={showList} onClick={() => { setListOpen(!showList); setGalaxiesOpen(false); setActivityOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><List size={19} /></button>
       <button ref={activityButton} className={`icon-button ${showActivity ? 'selected' : ''}`} aria-label="Recent activity" title="Recent activity" aria-expanded={showActivity} onClick={() => { setActivityOpen(!showActivity); setListOpen(false); setGalaxiesOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><History size={19} /></button>
-      <button className="icon-button" aria-label="Historical replay" title="Historical replay" disabled={status !== 'connected'} onClick={() => setReplaying(true)}><Play size={19} /></button>
+      <button ref={replayButton} className="icon-button" aria-label="Historical replay" title="Historical replay" disabled={status !== 'connected'} onClick={() => setReplaying(true)}><Play size={19} /></button>
       <span className="tool-divider" />
       <button className="icon-button" aria-label="Reset camera" title="Reset camera" onClick={() => { useCoreStore.getState().select(null); useCoreStore.getState().selectFile(null); setReset(value => value + 1) }}><Crosshair size={19} /></button>
       <button ref={diagnosticsButton} className={`icon-button ${showDiagnostics ? 'selected' : ''}`} aria-label="Engine diagnostics" title="Engine diagnostics" aria-expanded={showDiagnostics} onClick={() => { setDiagnostics(!showDiagnostics); setListOpen(false); setGalaxiesOpen(false); setActivityOpen(false); setPanelRevision(focusRevision) }}><ActivityIcon size={19} /></button>
@@ -111,7 +119,7 @@ export default function Shell() {
     {showList && (mode === 'filesystem' ? <FileSystemBrowser key={frame?.filesystem.scope} close={() => { listButton.current?.focus(); setListOpen(false) }} /> : mode === 'network' ? <NetworkBrowser close={() => { listButton.current?.focus(); setListOpen(false) }} /> : <ProcessBrowser key={mode} close={() => { listButton.current?.focus(); setListOpen(false) }} />)}
     {showGalaxies && (mode === 'universe' || mode === 'hierarchy') && <GalaxyBrowser close={() => { galaxiesButton.current?.focus(); setGalaxiesOpen(false) }} />}
     {showActivity && <Activity close={() => { activityButton.current?.focus(); setActivityOpen(false) }} />}
-    {!showDiagnostics && !showList && !(showGalaxies && (mode === 'universe' || mode === 'hierarchy')) && !showActivity && (mode === 'filesystem' ? <FileInspector /> : mode === 'network' ? <NetworkInspector /> : <><ProcessInspector /><GalaxyInspector key={selectedGalaxyId} /></>)}
+    {!showDiagnostics && !showList && !(showGalaxies && (mode === 'universe' || mode === 'hierarchy')) && !showActivity && (mode === 'filesystem' ? <FileInspector close={() => { listButton.current?.focus(); useCoreStore.getState().selectFile(null) }} /> : mode === 'network' ? <NetworkInspector close={() => { listButton.current?.focus(); useCoreStore.getState().selectConnection(null) }} /> : <><ProcessInspector close={() => { listButton.current?.focus(); useCoreStore.getState().select(null) }} /><GalaxyInspector key={selectedGalaxyId} close={() => { galaxiesButton.current?.focus(); useCoreStore.getState().selectGalaxy(null) }} /></>)}
     {error && <div className="connection-notice" role="alert"><span>{error}</span>{status !== 'disconnected' && <button className="icon-button" aria-label="Reconnect core" title="Reconnect core" onClick={() => setConnectionAttempt(value => value + 1)}><RefreshCw size={17} /></button>}</div>}
     <footer className="statusbar">
       {mode === 'filesystem' ? <><div><span className="footer-label">DIRECTORY ENTRIES</span><strong data-testid="file-count">{frame?.filesystem.entries.length ?? 0}</strong></div><span className="footer-label">READ-ONLY / METADATA</span><span className="footer-label">{frame?.filesystem.watching ? 'WATCHING' : 'NOT WATCHING'}</span></> : <>

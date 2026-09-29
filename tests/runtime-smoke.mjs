@@ -5,6 +5,7 @@ import { PerspectiveCamera, Vector3 } from 'three'
 import { createServer, createConnection } from 'node:net'
 import { createSocket } from 'node:dgram'
 import { once } from 'node:events'
+import axe from 'axe-core'
 import { verifyFilesystem } from './filesystem-smoke.mjs'
 
 const native = process.argv.includes('--native')
@@ -102,6 +103,7 @@ async function verifyHistory() {
   await page.screenshot({ path: 'artifacts/native-narrow-replay.png' })
   await page.setViewportSize({ width: 1360, height: 820 })
   await page.getByRole('button', { name: 'Return to live' }).click()
+  await expect(page.getByRole('button', { name: 'Historical replay' })).toBeFocused()
   await expect(page.getByTestId('connection-status')).toHaveText('Native core connected')
   await page.getByRole('button', { name: 'Engine diagnostics' }).click()
   console.log(JSON.stringify({ historyOptIn: true, recordedPid: workload.pid, sessionClosed: true }))
@@ -263,6 +265,17 @@ try {
   await page.setViewportSize({ width: 1360, height: 820 })
   await expect(page.locator('canvas')).toBeVisible({ timeout: 20000 })
   const desktop = await canvasIsVisible()
+  if (!native) {
+    await page.addScriptTag({ content: axe.source })
+    for (const panel of [null, 'Engine diagnostics', 'Process list', 'Galaxy list', 'Recent activity']) {
+      if (panel) await page.getByRole('button', { name: panel, exact: true }).click()
+      const violations = await page.evaluate(async () => (await window.axe.run(document, {
+        runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
+      })).violations.map(issue => ({ id: issue.id, targets: issue.nodes.map(node => node.target) })))
+      expect(violations, panel ?? 'Default shell').toEqual([])
+    }
+    await page.getByRole('button', { name: 'Close activity' }).click()
+  }
   await page.screenshot({ path: `artifacts/${native ? 'native' : 'browser'}-desktop.png` })
   await page.mouse.move(600, 430)
   await page.mouse.down()

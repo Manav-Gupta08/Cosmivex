@@ -112,7 +112,8 @@ npm run desktop:build
 ```
 
 With `npm run dev` already running, `node tests/runtime-smoke.mjs` validates the
-browser-only state. `verify-desktop.ps1` launches and closes its own release app,
+browser-only state, including axe-core WCAG A/AA checks for the shell and its
+tool panels. `verify-desktop.ps1` launches and closes its own release app,
 temporarily enables loopback WebView2 debugging for that child only, exercises real
 IPC and rendering, closes it, and verifies reopening. Port 9223 must be available;
 use `-Port 9224` when occupied. No debugging port is enabled in ordinary launches.

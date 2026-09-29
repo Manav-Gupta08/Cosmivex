@@ -32,7 +32,7 @@ export function NetworkBrowser({ close }: { close: () => void }) {
   </aside>
 }
 
-export function NetworkInspector() {
+export function NetworkInspector({ close = () => useCoreStore.getState().selectConnection(null) }: { close?: () => void }) {
   const connection = useCoreStore(state => state.selectedConnection)
   const networkInterface = useCoreStore(state => state.selectedInterface)
   const frame = useCoreStore(state => state.frame)
@@ -43,7 +43,7 @@ export function NetworkInspector() {
   const state = status !== 'connected' ? 'Last observation / stream stale' : !network?.enabled ? 'Collection off' : network.tableErrors.some(error => error !== 0) || network.interfaceError ? 'Partial collection' : present ? 'Observed' : 'No longer observed'
   const owner = connection && frame ? connectionOwner(connection, frame.processes.rows) : undefined
   return <aside className="diagnostics network-inspector" aria-label="Network details">
-    <div className="panel-heading"><h2>{connection ? `${connection.protocol} / IPv${connection.family}` : networkInterface!.name || 'Network interface'}</h2><button className="icon-button" aria-label="Close network details" title="Close network details" onClick={() => useCoreStore.getState().selectConnection(null)}><X size={17} /></button></div>
+    <div className="panel-heading"><h2>{connection ? `${connection.protocol} / IPv${connection.family}` : networkInterface!.name || 'Network interface'}</h2><button className="icon-button" aria-label="Close network details" title="Close network details" onClick={close}><X size={17} /></button></div>
     <span className="process-status" data-testid="network-status">{state}</span>
     <div className="panel-section"><h3>{connection ? 'Socket observation' : 'Interface observation'}</h3><dl>
       {connection ? <>

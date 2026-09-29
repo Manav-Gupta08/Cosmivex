@@ -14,15 +14,21 @@ postprocessing, bloom, particles or synthetic telemetry were introduced.
 - Closing Diagnostics, Process/Network/Filesystem list, Galaxy list or Recent
   activity returns focus to its still-visible trigger. Process and Galaxy list
   selection uses the same close callbacks.
+- Closing Process, Galaxy, Network or File details returns focus to the
+  corresponding list control; leaving Historical replay restores focus to its
+  live toolbar trigger after the live view remounts.
 
 ## Verification
 
-57 frontend tests, frontend lint and production build pass. Browser preview
+62 frontend tests, frontend lint and production build pass. Browser preview
 smoke confirms focused orbit and zoom keys change the canvas independently of
 its focus ring; it also checks nonblank desktop/narrow canvases, stable idle
-frames and no page errors. The rebuilt Windows release WebView smoke passes
-native telemetry, network/filesystem, replay, keyboard and pointer camera
-navigation, recovery and desktop/narrow canvas checks (566/770 lit pixels).
+frames and no page errors. Axe-core checks of the default browser shell and
+Diagnostics, Process list, Galaxy list and Recent activity found no WCAG 2 A/AA
+or 2.1 AA rule violations. The rebuilt Windows release WebView smoke passes
+native telemetry, network/filesystem, replay-to-live focus, keyboard and
+pointer camera navigation, recovery and desktop/narrow canvas checks
+(570/756 lit pixels).
 Earlier smoke runs failed existing network endpoint- and galaxy-picking
 assertions before reaching the keyboard path; unchanged retries passed. These
 checks do not certify screen-reader output

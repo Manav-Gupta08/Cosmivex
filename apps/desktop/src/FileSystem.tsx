@@ -41,14 +41,14 @@ export function FileSystemBrowser({ close }: { close: () => void }) {
   </aside>
 }
 
-export function FileInspector() {
+export function FileInspector({ close = () => useCoreStore.getState().selectFile(null) }: { close?: () => void }) {
   const entry = useCoreStore(state => state.selectedFile)
   const snapshot = useCoreStore(state => state.frame?.filesystem)
   const status = useCoreStore(state => state.status)
   if (!entry || !snapshot) return null
   const present = snapshot.entries.some(row => row.id === entry.id)
   const label = status !== 'connected' ? 'Last observation / stream stale' : snapshot.error ? 'Directory unavailable' : present ? 'Observed' : 'No longer observed'
-  return <aside className="diagnostics file-inspector" aria-label="File details"><div className="panel-heading"><h2>{entry.name}</h2><button className="icon-button" aria-label="Close file details" title="Close file details" onClick={() => useCoreStore.getState().selectFile(null)}><X size={17} /></button></div>
+  return <aside className="diagnostics file-inspector" aria-label="File details"><div className="panel-heading"><h2>{entry.name}</h2><button className="icon-button" aria-label="Close file details" title="Close file details" onClick={close}><X size={17} /></button></div>
     <span className="process-status" data-testid="file-status">{label}</span>
     <div className="panel-section"><h3>Directory entry</h3><dl><dt>Type</dt><dd>{entry.directory ? 'Directory' : 'File'}</dd><dt>Bytes</dt><dd data-testid="file-size">{entry.size ?? 'Not a recursive size'}</dd><dt>Modified</dt><dd>{entry.modifiedUnixMs ? new Date(entry.modifiedUnixMs).toLocaleString() : 'Unavailable'}</dd><dt>File ID</dt><dd>{entry.fileId === '0' ? 'Unavailable' : entry.fileId}</dd><dt>Attributes</dt><dd>{entry.attributes}</dd><dt>Reparse point</dt><dd>{entry.reparse ? 'Not traversed' : 'No'}</dd></dl></div>
     {entry.directory && <button className="focus-process" disabled={!present || entry.reparse || !!snapshot.error} onClick={() => void navigateFilesystem(snapshot.scope, entry.token).catch(failure)}><FolderOpen size={15} /> Open directory</button>}
