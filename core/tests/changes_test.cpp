@@ -92,8 +92,24 @@ int main() {
         check(events->events.size() == universe::recent_event_limit && events->evicted_count == 4097 - universe::recent_event_limit, "event ring remains bounded under burst");
         check(events->events.front().sequence == events->last_sequence - universe::recent_event_limit + 1, "stable event gap detection cursor");
         check(universe::diff_snapshots(&large, large).process_upserts.empty(), "4096 unchanged processes coalesce");
+        const auto slow_consumer = events;
+        constexpr uint32_t rounds = 6;
+        const auto churn_started = std::chrono::steady_clock::now();
+        for (uint32_t round = 1; round <= rounds; ++round) {
+            std::vector<universe::ProcessRow> replacements;
+            replacements.reserve(4096);
+            for (uint32_t pid = 1; pid <= 4096; ++pid) replacements.push_back(process(pid, 4096 * round + pid));
+            events = burst.observe(snapshot(2000 + 100 * round, std::move(replacements)), 2 + round);
+        }
+        const auto churn_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - churn_started).count();
+        constexpr uint64_t churn_events = 4096 + 2 * 4096 * rounds;
+        check(events->last_sequence == 1 + churn_events, "PID reuse preserves every lifecycle event sequence");
+        check(events->events.size() == universe::recent_event_limit && events->evicted_count == 1 + churn_events - universe::recent_event_limit, "slow consumer cannot grow native event ring");
+        check(slow_consumer->last_sequence == 4097 && slow_consumer->events.back().generation == 4096, "held consumer window remains immutable");
+        check(events->events.back().kind == universe::EventKind::created && events->events.back().generation == 4096 * rounds + 4096, "last reused identity is retained");
         std::cout << "PASS: observed lifecycle, failure/pause baselines, native diffs, bounded 4096-event burst; ms="
-                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count() << '\n';
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()
+                  << ", synthetic churn events/s=" << static_cast<double>(2 * 4096 * rounds) / churn_seconds << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

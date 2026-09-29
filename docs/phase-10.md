@@ -39,6 +39,19 @@ getter overhead during the dense-color case; these are noisy JS measurements,
 not measured GPU transfer bandwidth. Upload-range correctness and selected
 identity are covered by frontend tests.
 
+## Synthetic event pressure
+
+Release C++ journal test generates a 4,096-process initial burst and six
+successive 4,096-PID reuse snapshots, producing 49,152 additional lifecycle
+events in roughly 25 ms (about 1.94 million synthetic events/s on this run).
+The ring remains at 256 recent events, its eviction count and sequence cursor
+agree, and a slow consumer's earlier window remains immutable. A separate
+release Rust bridge test advances the latest state 50,000 times without an
+acknowledgement: only the original transfer is emitted until the ack, after
+which the bridge sends the newest state. These tests bypass OS collection,
+serialization into a live WebView, IPC parsing and history writes; they do not
+prove sustained end-to-end event throughput or bounded total app memory.
+
 ## Verification to date
 
 Frontend: 54 tests, lint and production TypeScript/Vite build pass. Native:
@@ -61,10 +74,11 @@ controlled; this is idle only, not an orbit or large-count profile.
 
 This is not a 10k/50k/100k interactive renderer certification: 100k topology
 rebuilds remain far above the 16.7 ms frame target, and the two GPU buffers
-remain sized for the real 4,096-process cap. No 50k-events/s producer, slow
-consumer/queue-overflow soak, sustained churn, frame p95, GPU timer query,
-active whole-app CPU/memory/IPC or native LOD interaction measurement has been run
-for this phase. Current whole-app working set of 403.0 MiB exceeds the
-250 MiB review target. Do not use these synthetic timings as evidence that
+remain sized for the real 4,096-process cap. No end-to-end 50k-events/s
+producer, long-duration slow-consumer/queue-overflow soak, sustained churn,
+frame p95, GPU timer query, active whole-app CPU/memory/IPC or native LOD
+interaction measurement has been run for this phase. Current whole-app working
+set of 403.0 MiB exceeds the 250 MiB review target. Do not use these synthetic
+timings as evidence that
 those gates pass; postpone a Phase 10 release tag until representative native
 qualification is recorded.

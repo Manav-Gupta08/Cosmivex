@@ -383,15 +383,21 @@ mod tests {
         assert_eq!(count.load(Ordering::Relaxed), 1);
         {
             let mut delivery = bridge.delivery.lock().unwrap();
-            delivery.latest.0 += 10000;
-            delivery.latest.1.sequence = delivery.latest.0.to_string();
-            delivery.send_latest();
+            for _ in 0..50_000 {
+                delivery.latest.0 += 1;
+                delivery.latest.1.sequence = delivery.latest.0.to_string();
+                delivery.send_latest();
+            }
         }
         assert_eq!(count.load(Ordering::Relaxed), 1);
         bridge.ack(first, "999", 0).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 1);
         bridge.ack(first, "1", 0).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 2);
+        {
+            let delivery = bridge.delivery.lock().unwrap();
+            assert_eq!(delivery.subscriber.as_ref().unwrap().pending.as_ref().unwrap().health.sequence, delivery.latest.1.sequence);
+        }
         bridge.resync(first).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 3);
         bridge.ack(first, "2", 0).unwrap();
