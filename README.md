@@ -5,7 +5,7 @@ Performance first. Real observations only. No AI functionality.
 
 ## Current milestone
 
-Phase 8 is implemented and functionally verified in the actual Windows application. Real
+Phase 9 is implemented and functionally verified in the actual Windows application. Real
 Windows processes appear as instanced stars in selectable, inferred galaxies.
 Switch between the galaxy universe and process hierarchy, search by name/PID,
 inspect processes or groups, and navigate validated parent links. Relationships,
@@ -33,14 +33,17 @@ inspection and instanced file/directory objects. It never reads file contents.
 Local SQLite recording is opt-in from diagnostics and starts a new session at
 the current observation. It records bounded process events, changed network
 and filesystem metadata, periodic checkpoints and 10-second resource buckets.
-Recorded sessions can be inspected without enabling recording. Timeline/replay
-and large-count LOD benchmarks remain later phases.
+Recorded sessions can be explored in a separate read-only 3D replay view with
+checkpoint seeking, recorded process selection and bounded event evidence.
+Replay never replaces live observations. Large-count LOD benchmarks remain
+a later phase.
 The reference grid is a navigation aid, not an observed entity.
 
 The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
-See [Phase 8 verification](docs/phase-8.md) for current results and open concerns;
+See [Phase 9 verification](docs/phase-9.md) for current results and open concerns;
+[Phase 8 verification](docs/phase-8.md) preserves recording results;
 [Phase 7 verification](docs/phase-7.md) preserves filesystem results;
 [Phase 6 verification](docs/phase-6.md) preserves network results;
 [Phase 5 verification](docs/phase-5.md) preserves resource-mapping results and the unresolved CPU outlier;
@@ -131,6 +134,8 @@ separately; both launch their own release desktop instance.
 The native smoke also enables history explicitly, starts a controlled process,
 queries its recorded event and verifies that disabling recording closes the
 session. This verification writes a test session to the user's app-data history.
+It then seeks recorded states in the 3D replay view at desktop and narrow sizes
+and returns to live observation without changing collection settings.
 
 For investigating WebView CPU, `node tests/profile-resources.mjs` starts its own
 release app with loopback CDP on port 9224, captures 15-second CPU profiles with
@@ -175,8 +180,10 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - Diagnostics has an off-by-default local-history checkbox and a list of up to
   50 recorded sessions. Recording writes to the user's app-data directory;
   disabling it closes the session. Storage errors disable recording and are
-  shown without stopping live observation. The bounded event query is available
-  through native IPC; timeline navigation and replay are not implemented.
+  shown without stopping live observation. Historical replay is an explicit
+  toolbar mode with session selection, checkpoint slider, timed play/pause,
+  process search/selection and bounded event list. Return to live to resume
+  the original scene. It cannot send OS control or recording commands.
 - Eco: 2 s wait between process collections, 30 fps draw ceiling, pixel ratio 1,
   no MSAA. With collection off, health cadence reduces to 5 s.
 - Normal: 1 s wait between collections, 60 fps draw ceiling, pixel ratio 1, no MSAA.
@@ -222,10 +229,17 @@ PNG/ICO assets are committed so building does not require regenerating them.
 - An independent single-slot writer queue keeps SQLite operations off the native
   collection and UI delivery path. If it misses process events, the next
   available event window records a gap. Recording writes a full checkpoint at
-  start and about every 60 seconds; 24-hour retention preserves a preceding
-  checkpoint. The database uses a 256 MiB page limit, not a hard bound on all
+  start and about every 60 seconds, with bounded state packets between them;
+  24-hour retention preserves a preceding full checkpoint. The database uses
+  a 256 MiB page limit, not a hard bound on all
   auxiliary WAL files. Recording stops on storage failure instead of claiming
   complete history. No recording starts without explicit consent.
+- Replay reads one full checkpoint and at most 256 subsequent state packets
+  (16 MiB combined), validates their sequence and graph, and shows the actual
+  observation time. Missed observations are marked incomplete; unrecorded
+  intermediate states are never interpolated. Older Phase 8 sessions have
+  checkpoint-only seeking. Queries cap the timeline at 2,048 recent timestamps
+  and each event page at 100 records.
 - CPU uses 0-100% of total logical processor capacity; working set is not private
   memory. Sampling may miss short-lived processes. At most 4,096 processes are
   collected; any truncation is explicit.

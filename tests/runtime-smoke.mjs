@@ -82,6 +82,28 @@ async function verifyHistory() {
   }
   await expect(checkbox).not.toBeChecked({ timeout: 10000 })
   await expect.poll(async () => (await sessions()).find(row => row.id === session.id)?.endedMs, { timeout: 10000 }).toBeGreaterThan(0)
+  const checkpoints = () => page.evaluate(id => window.__TAURI_INTERNALS__.invoke('history_checkpoints', { session: id }), session.id)
+  await expect.poll(async () => (await checkpoints()).length).toBeGreaterThan(1)
+  await page.getByRole('button', { name: 'Close diagnostics' }).click()
+  await page.getByRole('button', { name: 'Historical replay' }).click()
+  await page.getByRole('combobox', { name: 'History session' }).selectOption(session.id)
+  await expect(page.getByRole('complementary', { name: 'Recorded details' })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole('slider', { name: 'Replay checkpoint' })).toBeEnabled()
+  await page.getByRole('slider', { name: 'Replay checkpoint' }).fill('0')
+  await expect(page.getByRole('complementary', { name: 'Recorded details' })).toBeVisible()
+  await page.getByRole('button', { name: 'Next checkpoint' }).click()
+  await expect(page.getByRole('complementary', { name: 'Recorded details' })).toBeVisible()
+  await canvasIsVisible()
+  await page.screenshot({ path: 'artifacts/native-replay.png' })
+  await page.setViewportSize({ width: 400, height: 740 })
+  await canvasIsVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(await page.getByRole('complementary', { name: 'Recorded details' }).evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false)
+  await page.screenshot({ path: 'artifacts/native-narrow-replay.png' })
+  await page.setViewportSize({ width: 1360, height: 820 })
+  await page.getByRole('button', { name: 'Return to live' }).click()
+  await expect(page.getByTestId('connection-status')).toHaveText('Native core connected')
+  await page.getByRole('button', { name: 'Engine diagnostics' }).click()
   console.log(JSON.stringify({ historyOptIn: true, recordedPid: workload.pid, sessionClosed: true }))
 }
 
@@ -398,6 +420,7 @@ try {
     await page.getByRole('button', { name: 'Engine diagnostics' }).click()
   } else {
     await expect(page.getByRole('button', { name: 'Eco profile' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Historical replay' })).toBeDisabled()
     await expect(page.getByTestId('sequence')).toHaveText('Unavailable')
     await expect(page.getByRole('checkbox', { name: 'Record local history' })).toBeDisabled()
   }

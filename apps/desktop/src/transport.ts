@@ -1,6 +1,6 @@
 import { Channel, invoke, isTauri } from '@tauri-apps/api/core'
 import type { Profile } from '../../../shared/protocol/core'
-import { applyPacket, ChunkAssembler, wireSchema } from '../../../shared/protocol/stream'
+import { applyPacket, ChunkAssembler, reconstructHistory, wireSchema } from '../../../shared/protocol/stream'
 import { useCoreStore } from './state/core'
 
 let subscriptionQueue: Promise<void> = Promise.resolve()
@@ -106,4 +106,27 @@ export type HistorySession = { id: string; startedMs: number; endedMs: number | 
 
 export async function readHistorySessions(): Promise<HistorySession[]> {
   return invoke<HistorySession[]>('history_sessions')
+}
+
+export async function readHistoryCheckpoints(session: string): Promise<number[]> {
+  const times = await invoke<unknown>('history_checkpoints', { session })
+  if (!Array.isArray(times) || times.length > 2048 || times.some((time, index) => !Number.isSafeInteger(time) || time < 0 || (index > 0 && time <= times[index - 1]))) {
+    throw new Error('Invalid checkpoint timeline')
+  }
+  return times
+}
+
+export async function readHistoryCheckpoint(session: string, atMs: number) {
+  const history = await invoke<unknown>('history_checkpoint', { session, atMs })
+  return history === null ? null : reconstructHistory(history)
+}
+
+export type HistoryEvent = { sequence: number; observedMs: number; kind: string; payloadJson: string }
+
+export async function readHistoryEvents(session: string, sinceMs: number): Promise<HistoryEvent[]> {
+  const rows = await invoke<HistoryEvent[]>('history_events', { session, sinceMs })
+  if (!Array.isArray(rows) || rows.length > 100 || rows.some(row => !Number.isSafeInteger(row.observedMs) || row.observedMs < sinceMs || typeof row.kind !== 'string' || typeof row.payloadJson !== 'string')) {
+    throw new Error('Invalid history events')
+  }
+  return rows
 }

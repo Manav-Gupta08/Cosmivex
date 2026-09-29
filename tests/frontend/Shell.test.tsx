@@ -12,6 +12,7 @@ it('does not fabricate telemetry or enable native profiles in a browser', async 
   await screen.findByLabelText('Test viewport')
   expect(screen.getByRole('status')).toHaveTextContent('Browser preview')
   expect(screen.getByRole('button', { name: 'Eco profile' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Historical replay' })).toBeDisabled()
   expect(screen.getByRole('alert')).toHaveTextContent('Native core unavailable')
 })
 

@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
-import { Activity as ActivityIcon, Aperture, Crosshair, FolderOpen, Gauge, GitFork, History, Leaf, List, Network, Orbit, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { Activity as ActivityIcon, Aperture, Crosshair, FolderOpen, Gauge, GitFork, History, Leaf, List, Network, Orbit, Play, RefreshCw, Search, ShieldCheck } from 'lucide-react'
 import { connectCore, setNativeProfile, setProcessCollection, setNetworkCollection } from './transport'
 import { useCoreStore } from './state/core'
 import { Diagnostics } from './Diagnostics'
@@ -9,6 +9,7 @@ import { GalaxyBrowser, GalaxyInspector } from './Galaxies'
 import { Activity } from './Activity'
 import { NetworkBrowser, NetworkInspector } from './Network'
 import { FileInspector, FileSystemBrowser, FolderControls } from './FileSystem'
+import { Replay } from './Replay'
 
 const UniverseScene = lazy(() => import('../universe/Scene').then(module => ({ default: module.UniverseScene })))
 
@@ -44,6 +45,7 @@ export default function Shell() {
   const [connectionAttempt, setConnectionAttempt] = useState(0)
   const [reset, setReset] = useState(0)
   const [pending, setPending] = useState(false)
+  const [replaying, setReplaying] = useState(false)
   useEffect(() => connectCore(), [connectionAttempt])
   const showDiagnostics = diagnostics && panelRevision === focusRevision
   const showList = listOpen && panelRevision === focusRevision
@@ -73,10 +75,12 @@ export default function Shell() {
   const filesystemState = !frame?.filesystem.root ? 'No folder selected' : frame.filesystem.error ? `Directory error / Win32 ${frame.filesystem.error}`
     : frame.filesystem.watchError ? `Watch error / Win32 ${frame.filesystem.watchError}` : frame.filesystem.watching ? 'Watching direct children' : 'Watch stopped'
 
+  if (replaying) return <Replay close={() => setReplaying(false)} />
+
   return <main className="app-shell" data-view={mode}>
     <RendererBoundary><Suspense fallback={<div className="renderer-fallback">Opening viewport</div>}><UniverseScene profile={frame?.profile ?? 'eco'} reset={reset} /></Suspense></RendererBoundary>
     <header className="topbar">
-      <div className="brand"><Orbit size={27} strokeWidth={1.2} /><h1>UNIVERSE OS</h1><span className="version">0.7</span></div>
+      <div className="brand"><Orbit size={27} strokeWidth={1.2} /><h1>UNIVERSE OS</h1><span className="version">0.9</span></div>
       <div className={`connection-status ${status}`} role="status" data-testid="connection-status"><span className="status-dot" />{status === 'connected' ? 'Native core connected' : status === 'disconnected' ? 'Browser preview' : status === 'connecting' ? 'Connecting' : 'Core unavailable'}</div>
       <div className="profiles" role="group" aria-label="Resource profile">
         {profiles.map(({ id, label, Icon }) => <button key={id} className={frame?.profile === id ? 'active' : ''} disabled={status !== 'connected' || pending} aria-pressed={frame?.profile === id} aria-label={`${label} profile`} title={`${label} profile`} onClick={() => void changeProfile(id)}><Icon size={15} /><span>{label}</span></button>)}
@@ -93,6 +97,7 @@ export default function Shell() {
       {(mode === 'universe' || mode === 'hierarchy') && <button className={`icon-button ${showGalaxies ? 'selected' : ''}`} aria-label="Galaxy list" title="Galaxy list" aria-expanded={showGalaxies} onClick={() => { setGalaxiesOpen(!showGalaxies); setListOpen(false); setActivityOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><Orbit size={19} /></button>}
       <button className={`icon-button ${showList ? 'selected' : ''}`} aria-label={mode === 'filesystem' ? 'Filesystem list' : mode === 'network' ? 'Network list' : 'Process list'} title="Observed records" aria-expanded={showList} onClick={() => { setListOpen(!showList); setGalaxiesOpen(false); setActivityOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><List size={19} /></button>
       <button className={`icon-button ${showActivity ? 'selected' : ''}`} aria-label="Recent activity" title="Recent activity" aria-expanded={showActivity} onClick={() => { setActivityOpen(!showActivity); setListOpen(false); setGalaxiesOpen(false); setDiagnostics(false); setPanelRevision(focusRevision) }}><History size={19} /></button>
+      <button className="icon-button" aria-label="Historical replay" title="Historical replay" disabled={status !== 'connected'} onClick={() => setReplaying(true)}><Play size={19} /></button>
       <span className="tool-divider" />
       <button className="icon-button" aria-label="Reset camera" title="Reset camera" onClick={() => { useCoreStore.getState().select(null); useCoreStore.getState().selectFile(null); setReset(value => value + 1) }}><Crosshair size={19} /></button>
       <button className={`icon-button ${showDiagnostics ? 'selected' : ''}`} aria-label="Engine diagnostics" title="Engine diagnostics" aria-expanded={showDiagnostics} onClick={() => { setDiagnostics(!showDiagnostics); setListOpen(false); setGalaxiesOpen(false); setActivityOpen(false); setPanelRevision(focusRevision) }}><ActivityIcon size={19} /></button>
