@@ -28,8 +28,19 @@ export function resourceAppearance(levels: ResourceLevels | undefined, enabled: 
 export function mergeUpdateRange(attribute: BufferAttribute, start: number, count: number) {
   let beginning = start
   let end = start + count
-  for (const range of attribute.updateRanges) { beginning = Math.min(beginning, range.start); end = Math.max(end, range.start + range.count) }
+  const separate = [] as { start: number; count: number }[]
+  for (const range of attribute.updateRanges) {
+    if (range.start <= end && range.start + range.count >= beginning) {
+      beginning = Math.min(beginning, range.start)
+      end = Math.max(end, range.start + range.count)
+    } else separate.push(range)
+  }
+  separate.push({ start: beginning, count: end - beginning })
+  separate.sort((left, right) => left.start - right.start)
   attribute.clearUpdateRanges()
-  attribute.addUpdateRange(beginning, end - beginning)
+  if (separate.length > 8) {
+    const last = separate.at(-1)!
+    attribute.addUpdateRange(separate[0].start, last.start + last.count - separate[0].start)
+  } else for (const range of separate) attribute.addUpdateRange(range.start, range.count)
   attribute.needsUpdate = true
 }

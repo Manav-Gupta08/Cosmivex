@@ -42,12 +42,17 @@ it('maps native levels to bounded appearance without treating unknown as idle', 
   expect(resourceAppearance({ cpuLevel: 31, memoryLevel: 31 }, false).scale).toBe(1)
 })
 
-it('merges pending GPU edits so hidden windows neither lose changes nor grow an update queue', () => {
+it('keeps sparse GPU edits small and caps pending update ranges for hidden windows', () => {
   const attribute = new BufferAttribute(new Float32Array(160), 16)
   mergeUpdateRange(attribute, 16, 16)
   mergeUpdateRange(attribute, 96, 16)
   mergeUpdateRange(attribute, 32, 16)
-  expect(attribute.updateRanges).toEqual([{ start: 16, count: 96 }])
+  expect(attribute.updateRanges).toEqual([{ start: 16, count: 32 }, { start: 96, count: 16 }])
+  const busy = new BufferAttribute(new Float32Array(3200), 16)
+  for (let index = 0; index < 12; index++) mergeUpdateRange(busy, index * 64, 16)
+  expect(busy.updateRanges.length).toBeLessThanOrEqual(8)
+  expect(busy.updateRanges[0].start).toBe(0)
+  expect(busy.updateRanges.at(-1)!.start + busy.updateRanges.at(-1)!.count).toBe(720)
 })
 
 it('does not relayout the universe when native visual levels change', () => {
