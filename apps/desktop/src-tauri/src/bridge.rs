@@ -11,6 +11,8 @@ use std::sync::{
 use std::thread::JoinHandle;
 use tauri::ipc::Channel;
 
+pub mod qualification;
+
 struct Subscriber {
     id: u32,
     channel: Channel<Frame>,
@@ -40,6 +42,21 @@ struct Recording {
 }
 
 impl Delivery {
+    fn acknowledge(&mut self, id: u32, transfer_id: u64, chunk_index: usize) {
+        if let Some(subscriber) = &mut self.subscriber {
+            if subscriber.id != id { return; }
+            if let Some(transfer) = &mut subscriber.pending {
+                if transfer.id != transfer_id || transfer.index != chunk_index { return; }
+                if transfer.advance() {
+                    subscriber.base = subscriber.pending.take().map(|transfer| transfer.health);
+                    self.send_latest();
+                } else if subscriber.channel.send(transfer.frame(id)).is_err() {
+                    self.subscriber = None;
+                }
+            }
+        }
+    }
+
     fn send_latest(&mut self) {
         if let Some(subscriber) = &mut self.subscriber {
             if subscriber.pending.is_some()
@@ -175,22 +192,7 @@ impl Bridge {
             .delivery
             .lock()
             .map_err(|_| "Core bridge unavailable")?;
-        if let Some(subscriber) = &mut delivery.subscriber {
-            if subscriber.id != id {
-                return Ok(());
-            }
-            if let Some(transfer) = &mut subscriber.pending {
-                if transfer.id != transfer_id || transfer.index != chunk_index {
-                    return Ok(());
-                }
-                if transfer.advance() {
-                    subscriber.base = subscriber.pending.take().map(|transfer| transfer.health);
-                    delivery.send_latest();
-                } else if subscriber.channel.send(transfer.frame(id)).is_err() {
-                    delivery.subscriber = None;
-                }
-            }
-        }
+        delivery.acknowledge(id, transfer_id, chunk_index);
         Ok(())
     }
 

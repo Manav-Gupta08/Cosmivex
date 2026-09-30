@@ -28,7 +28,7 @@
       "capabilities": [{
         "identifier": "main-window",
         "windows": ["main"],
-        "permissions": ["core:default", "allow-core-bridge"]
+        "permissions": ["core:default", "allow-core-bridge", "allow-isolated-qualification"]
       }]
     }
   },

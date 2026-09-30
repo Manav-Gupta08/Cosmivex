@@ -65,6 +65,7 @@ fn set_profile(state: State<CoreState>, profile: Profile) -> Result<(), String> 
 
 pub fn run(context: tauri::Context<tauri::Wry>) {
     tauri::Builder::default()
+        .manage(std::sync::Arc::new(bridge::qualification::PressureState::default()))
         .manage(CoreState(Bridge::new().and_then(|bridge| {
             bridge.set_process_collection(true)?;
             bridge.set_network_collection(true)?;
@@ -86,7 +87,9 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             history_sessions,
             history_events,
             history_checkpoints,
-            history_checkpoint
+            history_checkpoint,
+            bridge::qualification::pressure_run,
+            bridge::qualification::pressure_ack
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
