@@ -59,6 +59,7 @@ struct uos_engine {
     bool stopped = false;
     bool collect_processes = false;
     bool collect_network = false;
+    SteadyClock::time_point next_process_sample{};
     SteadyClock::time_point next_network_sample{};
     std::shared_ptr<const universe::NetworkSnapshot> network = std::make_shared<universe::NetworkSnapshot>();
     uint64_t configuration_revision = 0;
@@ -79,7 +80,7 @@ struct uos_engine {
             std::unique_lock lock(mutex);
             while (!stopped) {
                 const auto revision = configuration_revision;
-                const bool sample_processes = collect_processes;
+                const bool sample_processes = collect_processes && SteadyClock::now() >= next_process_sample;
                 const bool sample_network = collect_network && SteadyClock::now() >= next_network_sample;
                 const auto previous = processes;
                 const auto request = std::move(file_request);
@@ -131,7 +132,10 @@ struct uos_engine {
                         if (!collect_network) network_tracker.reset();
                         continue;
                     }
-                    if (sample_processes) sampled->events = journal.observe(*sampled, monotonic_ns());
+                    if (sample_processes) {
+                        sampled->events = journal.observe(*sampled, monotonic_ns());
+                        next_process_sample = SteadyClock::now() + Milliseconds(latest.profile == UOS_ECO ? 2000 : 1000);
+                    }
                     if (sampled_network) {
                         network = std::move(sampled_network);
                         next_network_sample = SteadyClock::now() + Milliseconds(latest.profile == UOS_ECO ? 5000 : 2000);
@@ -144,7 +148,10 @@ struct uos_engine {
                     changed.notify_all();
                 } else { if (!collect_processes) tracker.reset(); }
                 if (!collect_network) network_tracker.reset();
-                const auto interrupted = changed.wait_for(lock, Milliseconds(latest.interval_ms),
+                auto deadline = SteadyClock::now() + Milliseconds(latest.interval_ms);
+                if (collect_processes && next_process_sample < deadline) deadline = next_process_sample;
+                if (collect_network && next_network_sample < deadline) deadline = next_network_sample;
+                const auto interrupted = changed.wait_until(lock, deadline,
                     [this, revision] { return stopped || configuration_revision != revision; });
                 if (!interrupted && !collect_processes && !collect_network) {
                     publish();
@@ -196,6 +203,7 @@ int32_t uos_set_profile(uos_engine* engine, uint32_t profile) noexcept {
         if (engine->stopped) return UOS_STOPPED;
         if (engine->latest.profile == profile) return UOS_FRAME;
         engine->latest.profile = profile;
+        engine->next_process_sample = {};
         engine->next_network_sample = {};
         engine->update_interval();
         ++engine->configuration_revision;
@@ -212,6 +220,7 @@ int32_t uos_set_process_collection(uos_engine* engine, uint32_t enabled) noexcep
         if (engine->stopped) return UOS_STOPPED;
         if (engine->collect_processes == (enabled != 0)) return UOS_FRAME;
         engine->collect_processes = enabled != 0;
+        engine->next_process_sample = {};
         engine->latest.enabled_collectors = enabled;
         auto cleared = std::make_shared<universe::ProcessSnapshot>();
         cleared->events = enabled ? engine->journal.current() : engine->journal.pause(unix_ms(), monotonic_ns());

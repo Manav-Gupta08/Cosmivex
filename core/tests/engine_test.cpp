@@ -54,6 +54,22 @@ int main() {
         }
         require(held != nullptr && info.error == 0, "real process snapshot through C ABI");
         require(frame.interval_ms == 2000 && frame.enabled_collectors == 1, "eco process interval");
+        const auto sampled_at = info.observed_at_unix_ms;
+        require(uos_filesystem_command(engine.get(), 2, nullptr, 0, 0, 0) == UOS_FRAME, "filesystem command accepted between samples");
+        bool filesystem_command_seen = false;
+        for (int attempt = 0; attempt < 10 && !filesystem_command_seen; ++attempt) {
+            require(uos_wait(engine.get(), frame.sequence, 1000, &frame, sizeof(frame)) == UOS_FRAME, "filesystem command publishes promptly");
+            uos_process_snapshot* updated = nullptr;
+            if (uos_acquire_processes(engine.get(), frame.sequence, &updated) != UOS_FRAME) continue;
+            uos_filesystem_info filesystem_info{};
+            uos_process_info process_info{};
+            require(uos_filesystem_info_read(updated, &filesystem_info, sizeof(filesystem_info)) == UOS_FRAME, "read filesystem command result");
+            require(uos_process_info_read(updated, &process_info, sizeof(process_info)) == UOS_FRAME, "read retained process sample");
+            uos_release_processes(updated);
+            filesystem_command_seen = filesystem_info.revision > 0;
+            require(process_info.observed_at_unix_ms == sampled_at, "filesystem navigation must not trigger an early process sample");
+        }
+        require(filesystem_command_seen, "filesystem command handled independently of process deadline");
         uos_process_row row{};
         require(uos_process_row_read(held, info.count, &row, sizeof(row)) == UOS_INVALID, "bounds check process rows");
         require(uos_process_row_read(held, 0, &row, sizeof(row)) == UOS_FRAME, "read native process row");
