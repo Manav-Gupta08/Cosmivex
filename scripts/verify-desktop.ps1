@@ -1,4 +1,4 @@
-param([int]$Port = 9223)
+param([int]$Port = 9223, [switch]$VisibilityOnly, [switch]$ConnectOnly, [switch]$MinimizeOnly)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $executable = Join-Path $root 'apps/desktop/src-tauri/target/release/universe-os.exe'
@@ -7,6 +7,7 @@ $listener = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::L
 try { $listener.Start() } finally { $listener.Stop() }
 $previousArgs = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $previousEndpoint = $env:UOS_TEST_ENDPOINT
+$previousAppPid = $env:UOS_TEST_APP_PID
 $previousTestPid = $env:UOS_TEST_PID
 $previousParentPid = $env:UOS_TEST_PARENT_PID
 $previousChildPid = $env:UOS_TEST_CHILD_PID
@@ -18,23 +19,28 @@ Push-Location $root
 try {
     $null = [System.IO.Directory]::CreateDirectory((Join-Path $root 'artifacts'))
     $workloadOutput = Join-Path $root 'artifacts/workload-reference.json'
-    $workload = Start-Process -FilePath (Get-Command node).Source -ArgumentList (Join-Path $root 'tests/process-workload.mjs') -RedirectStandardOutput $workloadOutput -WindowStyle Hidden -PassThru
-    $env:UOS_TEST_PID = [string]$workload.Id
-    $env:UOS_TEST_PARENT_PID = [string]$PID
-    $workload.Refresh()
-    $startedCpu = $workload.TotalProcessorTime.TotalSeconds
-    $referenceClock = [System.Diagnostics.Stopwatch]::StartNew()
-    Get-Counter '\System\System Up Time' -SampleInterval 1 -MaxSamples 3 | Out-Null
-    $workload.Refresh()
-    $referenceCpu = ($workload.TotalProcessorTime.TotalSeconds - $startedCpu) / $referenceClock.Elapsed.TotalSeconds / [Environment]::ProcessorCount * 100
-    $env:UOS_TEST_CHILD_PID = [string](Get-Content $workloadOutput -Raw | ConvertFrom-Json).childPid
-    $env:UOS_TEST_CPU = $referenceCpu.ToString([Globalization.CultureInfo]::InvariantCulture)
-    $env:UOS_TEST_MEMORY_MIB = ($workload.WorkingSet64 / 1MB).ToString([Globalization.CultureInfo]::InvariantCulture)
+    if (-not $VisibilityOnly -and -not $ConnectOnly -and -not $MinimizeOnly) {
+        $workload = Start-Process -FilePath (Get-Command node).Source -ArgumentList (Join-Path $root 'tests/process-workload.mjs') -RedirectStandardOutput $workloadOutput -WindowStyle Hidden -PassThru
+        $env:UOS_TEST_PID = [string]$workload.Id
+        $env:UOS_TEST_PARENT_PID = [string]$PID
+        $workload.Refresh()
+        $startedCpu = $workload.TotalProcessorTime.TotalSeconds
+        $referenceClock = [System.Diagnostics.Stopwatch]::StartNew()
+        Get-Counter '\System\System Up Time' -SampleInterval 1 -MaxSamples 3 | Out-Null
+        $workload.Refresh()
+        $referenceCpu = ($workload.TotalProcessorTime.TotalSeconds - $startedCpu) / $referenceClock.Elapsed.TotalSeconds / [Environment]::ProcessorCount * 100
+        $env:UOS_TEST_CHILD_PID = [string](Get-Content $workloadOutput -Raw | ConvertFrom-Json).childPid
+        $env:UOS_TEST_CPU = $referenceCpu.ToString([Globalization.CultureInfo]::InvariantCulture)
+        $env:UOS_TEST_MEMORY_MIB = ($workload.WorkingSet64 / 1MB).ToString([Globalization.CultureInfo]::InvariantCulture)
+    }
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$Port --remote-debugging-address=127.0.0.1"
     $env:UOS_TEST_ENDPOINT = "http://127.0.0.1:$Port"
-    $application = Start-Process -FilePath $executable -PassThru
+    $application = Start-Process -FilePath $executable -PassThru -RedirectStandardError (Join-Path $root 'artifacts/native-close.err')
+    $env:UOS_TEST_APP_PID = [string]$application.Id
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArgs
-    node tests/runtime-smoke.mjs --native
+    if ($VisibilityOnly -or $ConnectOnly -or $MinimizeOnly) {
+        if ($ConnectOnly) { node tests/visibility-smoke.mjs --connect-only } elseif ($MinimizeOnly) { node tests/visibility-smoke.mjs --minimize-only } else { node tests/visibility-smoke.mjs }
+    } else { node tests/runtime-smoke.mjs --native }
     if ($LASTEXITCODE -ne 0) { throw 'Native WebView smoke test failed.' }
     $application.Refresh()
     if ($application.HasExited) { throw 'Desktop exited unexpectedly during inspection.' }
@@ -47,6 +53,7 @@ try {
 } finally {
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArgs
     $env:UOS_TEST_ENDPOINT = $previousEndpoint
+    $env:UOS_TEST_APP_PID = $previousAppPid
     $env:UOS_TEST_PID = $previousTestPid
     $env:UOS_TEST_PARENT_PID = $previousParentPid
     $env:UOS_TEST_CHILD_PID = $previousChildPid

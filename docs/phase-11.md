@@ -1,4 +1,7 @@
-# Phase 11: restrained effects and accessibility (in progress)
+# Phase 11: restrained effects and accessibility
+
+Status: functionally verified in the Windows release application. This is not
+a claim of full WCAG conformance or representative performance qualification.
 
 The native universe retains its existing factual reference geometry, instance
 colors and 900 ms lifecycle rings. Rings remain capped at 32, disabled in Eco
@@ -41,4 +44,5 @@ median 0.933%, p95 2.080%, p99 2.441%; host mean 0.408% and WebView tree mean
 MiB, host private mean 6.97 MiB. System activity was not controlled. The idle
 CPU mean is borderline against the <1% target, and working set still exceeds
 the 250 MiB review target. Active GPU/frame and sustained-load qualification
-remain open in Phase 10/12; do not tag this phase as fully qualified yet.
+remain open for Phase 12; no Phase 11 release tag is claimed while the earlier
+Phase 10 performance gates remain unresolved.

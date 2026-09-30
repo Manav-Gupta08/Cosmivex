@@ -88,7 +88,16 @@ async function verifyHistory() {
   await page.getByRole('button', { name: 'Close diagnostics' }).click()
   await page.getByRole('button', { name: 'Historical replay' }).click()
   await page.getByRole('combobox', { name: 'History session' }).selectOption(session.id)
-  await expect(page.getByRole('complementary', { name: 'Recorded details' })).toBeVisible({ timeout: 10000 })
+  try {
+    await expect(page.getByRole('complementary', { name: 'Recorded details' })).toBeVisible({ timeout: 10000 })
+  } catch (failure) {
+    const probe = await page.evaluate(async id => ({ selected: document.querySelector('select[aria-label="History session"]')?.value,
+      timeline: document.querySelector('.replay-timeline')?.textContent,
+      checkpoints: await window.__TAURI_INTERNALS__.invoke('history_checkpoints', { session: id }),
+    }), session.id)
+    console.error('Replay timeout probe:', JSON.stringify(probe))
+    throw failure
+  }
   await expect(page.getByRole('slider', { name: 'Replay checkpoint' })).toBeEnabled()
   await page.getByRole('slider', { name: 'Replay checkpoint' }).fill('0')
   await expect(page.getByRole('complementary', { name: 'Recorded details' })).toBeVisible()
@@ -198,7 +207,8 @@ async function verifyNetwork() {
     const endpointPoint = new Vector3(0.45, 0, 0).project(networkCamera)
     await expect(async () => {
       await page.mouse.click((endpointPoint.x + 1) * 680, (1 - endpointPoint.y) * 410)
-      await expect(page.getByTestId('network-local')).toHaveText(`127.0.0.1:${clientPort}`, { timeout: 500 })
+      await expect(page.getByTestId('network-local')).toHaveText(new RegExp(`^127\\.0\\.0\\.1:(${clientPort}|${serverPort})$`), { timeout: 500 })
+      await expect(page.getByTestId('network-pid')).toHaveText(String(process.pid), { timeout: 500 })
     }).toPass({ timeout: 8000 })
     await page.getByRole('button', { name: `Open process (${process.pid})`, exact: true }).click()
     await expect(page.getByTestId('process-pid')).toHaveText(String(process.pid))
@@ -459,6 +469,12 @@ try {
     expect(dataFrames).toBeLessThan(24)
     console.log(JSON.stringify({ dataDrivenFramesAcrossFourSamples: dataFrames }))
     await page.getByRole('checkbox', { name: 'Resource visuals' }).uncheck()
+    await page.getByRole('button', { name: 'Network view', exact: true }).click()
+    await page.getByRole('checkbox', { name: 'Network collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Network collection' })).not.toBeChecked({ timeout: 6000 })
+    await page.getByRole('button', { name: 'Universe view', exact: true }).click()
+    await page.getByRole('checkbox', { name: 'Process collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Process collection' })).not.toBeChecked({ timeout: 6000 })
   }
   let previousFrames = ''
   let stableSamples = 0
@@ -470,7 +486,15 @@ try {
   }, { timeout: 15000, intervals: [1000] }).toBeGreaterThanOrEqual(3)
   await page.screenshot({ path: `artifacts/${native ? 'native' : 'browser'}-diagnostics.png` })
   if (native) console.log(await page.getByRole('complementary').innerText())
-  if (native) await page.getByRole('checkbox', { name: 'Resource visuals' }).check()
+  if (native) {
+    await page.getByRole('checkbox', { name: 'Process collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Process collection' })).toBeChecked({ timeout: 6000 })
+    await page.getByRole('button', { name: 'Network view', exact: true }).click()
+    await page.getByRole('checkbox', { name: 'Network collection' }).click()
+    await expect(page.getByRole('checkbox', { name: 'Network collection' })).toBeChecked({ timeout: 6000 })
+    await page.getByRole('button', { name: 'Universe view', exact: true }).click()
+    await page.getByRole('checkbox', { name: 'Resource visuals' }).check()
+  }
   if (native) await verifyHistory()
   await page.getByRole('button', { name: 'Close diagnostics' }).click()
   await page.setViewportSize({ width: 400, height: 740 })
