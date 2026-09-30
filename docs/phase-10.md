@@ -1,4 +1,9 @@
-# Phase 10: large-count renderer work (in progress)
+# Phase 10: bounded large-count renderer work
+
+Status: bounded aggregate rendering and isolated native pressure verified;
+full-detail interactive 10k/50k/100k qualification is not claimed. The live collector
+is capped at 4,096 processes. Phase 12 records representative live behavior
+and remaining limits.
 
 The live Windows collector still caps observed processes at 4,096. The synthetic
 workload in `tests/frontend/large-count.bench.ts` runs only under Vitest; it
@@ -17,6 +22,39 @@ Run it with `npm exec --workspace apps/desktop -- vitest bench ../../tests/front
   longer automatically upload all intermediate instances.
 - Metric-only layout checks compare existing topology records instead of
   allocating a process-sized joined string on every update.
+- Far selection uses a bounded max-heap, preserving identity hash ordering,
+  tie-breaking and selected membership without sorting the complete input.
+  Exact membership is tested against full sorting, including reversed input.
+
+## Latest qualification
+
+After the heap change, the 12-case Vitest benchmark measured mean topology /
+selection / cached layout costs of 15.19 / 1.24 / 0.290 ms at 10k,
+97.04 / 4.00 / 2.157 ms at 50k, and 212.48 / 7.01 / 4.277 ms at 100k.
+These replace the older selection implementation results below, not their
+measurement scope or caveats.
+
+`node tests/scale-workload.mjs 60` ran six native WebView2 aggregate-view trials:
+10k/50k/100k inputs at 1360x820 and 400x740, each rendering 1,024 instances for
+60 seconds. All produced 3,595-3,598 frames, nonblank pixel checks, retained
+selected-member ray picking, and screenshots. CPU submission p95 was
+0.4-0.8 ms, GPU execution p95 0.638-0.887 ms, and moving interval p95 16.8 ms.
+Topology rebuilding took 54.5-497 ms and is not a per-frame operation. This
+test uses production layout/selection with a separate Three instanced scene,
+not the complete live renderer. Two short frontend tests ran during the narrow
+viewport portion; other system load was not controlled. No isolated topology
+performance or 100k full-detail claim follows from this run.
+
+The opt-in Rust producer now drives the production delivery/chunk/ack path
+into the real WebView assembler without modifying live observations or SQLite.
+A 120-second slow-consumer trial generated 6,000,000 events in 120.014 seconds
+(49,994/s), retained 256, allowed at most one pending transfer, delivered
+111,360 rows, and reported 5,888,640 explicit gaps. The final cursor drained
+to 6,000,000 with zero pending transfers. A separate 60-second trial also
+passed. This demonstrates nominal 50k/s latest-state coalescing under delayed
+acks, not lossless delivery, OS collection at that rate, or a long-term total
+process-memory bound. Ordinary launches reject both qualification commands.
+See Phase 12 for complete measurement scope and remaining budgets.
 
 ## Synthetic measurements
 
@@ -39,6 +77,12 @@ getter overhead during the dense-color case; these are noisy JS measurements,
 not measured GPU transfer bandwidth. Upload-range correctness and selected
 identity are covered by frontend tests.
 
+A later 12-case rerun on the same machine measured 50k topology rebuild at
+105.60 ms, far selection at 36.84 ms and cached metric-only layout at 5.01 ms.
+At 100k those means were 249.13, 77.74 and 4.92 ms, respectively. Dense
+4,096-color upload averaged 1.15 ms, with the same Vitest getter warning.
+These single-run means are not a native WebView frame-time distribution.
+
 ## Synthetic event pressure
 
 Release C++ journal test generates a 4,096-process initial burst and six
@@ -54,13 +98,16 @@ prove sustained end-to-end event throughput or bounded total app memory.
 
 ## Verification to date
 
-Frontend: 54 tests, lint and production TypeScript/Vite build pass. Native:
+Frontend: 64 tests, lint and production TypeScript/Vite build pass. Native:
 seven CTest executables, 20 release Rust tests and release Clippy pass. The
 rebuilt release WebView smoke passes live process/resource, network, filesystem,
 history, renderer recovery and desktop/narrow canvas checks (566/790 lit
 pixels; no page errors). Its first run timed out waiting for replay to load a
-newly recorded session; an unchanged second run passed, so intermittent
-replay latency remains a risk. Browser preview had working WebGL at 1360x820
+newly recorded session; an unchanged second run passed, and a later full native
+run also passed after the idle stability check paused live collectors.
+That earlier replay failure was subsequently reproduced as a same-session
+selection clearing the timeline without rerunning its load effect; a guarded
+selection handler and regression test fixed it. Browser preview had working WebGL at 1360x820
 and 400x740 without horizontal overflow; it has no native process data.
 
 Normal release, recording off, 30 s warmup then 60 one-second samples on the
@@ -74,11 +121,12 @@ controlled; this is idle only, not an orbit or large-count profile.
 
 This is not a 10k/50k/100k interactive renderer certification: 100k topology
 rebuilds remain far above the 16.7 ms frame target, and the two GPU buffers
-remain sized for the real 4,096-process cap. No end-to-end 50k-events/s
-producer, long-duration slow-consumer/queue-overflow soak, sustained churn,
-frame p95, GPU timer query, active whole-app CPU/memory/IPC or native LOD
-interaction measurement has been run for this phase. Current whole-app working
-set of 403.0 MiB exceeds the 250 MiB review target. Do not use these synthetic
-timings as evidence that
-those gates pass; postpone a Phase 10 release tag until representative native
-qualification is recorded.
+remain sized for the real 4,096-process cap. The latest qualification above
+adds bounded native aggregate rendering, GPU queries and two-minute isolated
+bridge/WebView pressure. Long-duration total-memory soak and full-detail
+high-count interaction remain unqualified. Phase 12 adds active orbit and
+selection/focus/replay CPU/memory distributions and JSON-envelope IPC bytes
+at the real observed process count. The idle working set of 403.0 MiB
+already exceeds the 250 MiB review target. Do not use synthetic timings as
+evidence that untested interactive or end-to-end pressure gates pass; no
+Phase 10 release tag is claimed.

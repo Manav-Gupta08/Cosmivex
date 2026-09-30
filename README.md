@@ -6,9 +6,11 @@ Performance first. Real observations only. No AI functionality.
 ## Current milestone
 
 Phase 9 is implemented and functionally verified in the actual Windows application.
-Phase 10 has isolated large-count benchmarks and bounded renderer work; Phase 11
-adds keyboard viewport navigation and focus restoration. Both remain in progress
-pending representative active-load and accessibility qualification. Real
+Phase 10 has verified bounded renderer work and isolated large-count benchmarks,
+but not 100k native interactive certification. Phase 11 adds keyboard viewport
+navigation and focus restoration and is functionally verified. Phase 12 records
+native release measurements and explicit budget misses; remaining performance
+qualification gates are documented, not treated as passing. Real
 Windows processes appear as instanced stars in selectable, inferred galaxies.
 Switch between the galaxy universe and process hierarchy, search by name/PID,
 inspect processes or groups, and navigate validated parent links. Relationships,
@@ -47,6 +49,7 @@ The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
 See [Phase 11 progress](docs/phase-11.md) for accessibility and idle results;
+[Phase 12 progress](docs/phase-12.md) for active-orbit release measurements;
 [Phase 10 progress](docs/phase-10.md) for isolated scaling measurements;
 [Phase 9 verification](docs/phase-9.md) for replay results;
 [Phase 8 verification](docs/phase-8.md) preserves recording results;
@@ -108,8 +111,29 @@ npm run lint
 npm run build
 npm run desktop:build
 .\scripts\verify-desktop.ps1
+.\scripts\verify-desktop.ps1 -VisibilityOnly
 .\scripts\measure-idle.ps1
+.\scripts\measure-idle.ps1 -Minimized
+.\scripts\measure-idle.ps1 -Orbit
+.\scripts\measure-idle.ps1 -Startup -SampleSeconds 10
+.\scripts\measure-idle.ps1 -Interaction selection
+.\scripts\measure-idle.ps1 -Interaction focus
+.\scripts\measure-idle.ps1 -Interaction replay
+node tests/pressure-workload.mjs 5 --disabled
+node tests/pressure-workload.mjs 120
+node tests/scale-workload.mjs 60
 ```
+
+The orbit variant requires port 9224 and records an active native WebView2/CDP
+run in `artifacts/orbit-release.json`; the default idle run remains separate in
+`artifacts/idle-release.json`. The minimized variant checks that its own window
+is minimized before sampling and writes `artifacts/minimized-release.json`.
+All variants require the rebuilt release executable. The sampler also retains
+timestamped JSON reports. Set `UOS_ORBIT_INPUT=local` for browser-local pointer
+dispatch instead of repeated CDP pointer commands; reports identify the input
+mode. Pressure and scale scripts launch separate diagnostic apps on ports 9225
+and 9226. Synthetic inputs never enter the live store or recorded history.
+Pressure commands reject ordinary launches without `UOS_QUALIFICATION=1`.
 
 With `npm run dev` already running, `node tests/runtime-smoke.mjs` validates the
 browser-only state, including axe-core WCAG A/AA checks for the shell and its
@@ -117,6 +141,9 @@ tool panels. `verify-desktop.ps1` launches and closes its own release app,
 temporarily enables loopback WebView2 debugging for that child only, exercises real
 IPC and rendering, closes it, and verifies reopening. Port 9223 must be available;
 use `-Port 9224` when occupied. No debugging port is enabled in ordinary launches.
+The focused `-VisibilityOnly` mode checks frame pause and camera recovery on
+real minimization. Every verifier mode requires ordinary shutdown within five
+seconds and reopening; forced cleanup is never counted as a shutdown pass.
 The verifier starts its own bounded parent/child CPU/memory workload, compares its observed PID,
 parent PID, CPU and working set with Windows reference measurements, then ends
 that specific test process and verifies disappearance. It also checks real galaxy
