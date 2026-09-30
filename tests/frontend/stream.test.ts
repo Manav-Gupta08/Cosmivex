@@ -30,6 +30,12 @@ it('applies exact native upserts/removals and validates the resulting graph', ()
   const removal = { ...delta, baseSequence: '2', sequence: '3', processes: { ...delta.processes, rows: [], galaxies: [], removed: ['42:1'], removedGalaxies: ['g:42:1'] } }
   expect(applyPacket(next, removal).processes.rows).toEqual([])
   expect(() => applyPacket(next, { ...removal, processes: { ...removal.processes, removedGalaxies: [] } })).toThrow()
+  expect(() => applyPacket(next, { ...delta, baseSequence: '2', sequence: '3', processes: { ...delta.processes,
+    rows: [], galaxies: [{ ...galaxyFixture, processCount: 2 }], removed: [], removedGalaxies: [],
+  } })).toThrow('Invalid reconstructed frame')
+  expect(() => applyPacket(next, { ...delta, baseSequence: '2', sequence: '3', intervalMs: 1000,
+    processes: { ...delta.processes, rows: [], galaxies: [], removed: [], removedGalaxies: [] },
+  })).toThrow('Invalid reconstructed frame')
 })
 
 it('new snapshot replaces state without needing a delta base', () => {

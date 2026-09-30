@@ -53,7 +53,10 @@ export const processSnapshotSchema = z.strictObject({
   rows: z.array(processSchema).max(4096),
   galaxies: z.array(galaxySchema).max(4096),
   modelBuildMs: z.number().nonnegative().finite(),
-}).refine(snapshot => {
+}).refine(validProcessGraph)
+export type ProcessSnapshot = z.infer<typeof processSnapshotSchema>
+
+export function validProcessGraph(snapshot: { rows: ProcessRecord[]; galaxies: GalaxyRecord[] }): boolean {
   const rows = new Map(snapshot.rows.map(process => [process.id, process]))
   const groups = new Map(snapshot.galaxies.map(group => [group.id, group]))
   const counts = new Map<string, number>()
@@ -67,8 +70,7 @@ export const processSnapshotSchema = z.strictObject({
     counts.set(process.galaxyId, (counts.get(process.galaxyId) ?? 0) + 1)
   }
   return snapshot.galaxies.every(group => rows.get(group.rootId)?.galaxyId === group.id && counts.get(group.id) === group.processCount)
-})
-export type ProcessSnapshot = z.infer<typeof processSnapshotSchema>
+}
 
 export const connectionSchema = z.strictObject({
   id: z.string().regex(/^n:[1-9][0-9]{0,19}$/), pid: unsigned32,

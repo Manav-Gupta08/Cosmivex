@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { coreFrameSchema, galaxyId, parseHistoricalCheckpoint, processId, processSnapshotSchema, networkSnapshotSchema, filesystemSnapshotSchema, unsigned64, type CoreFrame } from './core'
+import { coreFrameSchema, galaxyId, parseHistoricalCheckpoint, processId, processSnapshotSchema, networkSnapshotSchema, filesystemSnapshotSchema, unsigned64, validProcessGraph, type CoreFrame } from './core'
 
 export const CHUNK_BYTES = 256 * 1024
 export const TRANSFER_BYTES = 16 * 1024 * 1024
@@ -73,7 +73,6 @@ export class ChunkAssembler {
   }
 }
 
-const stateSchema = coreFrameSchema.strip()
 export function applyPacket(base: CoreFrame | null, packet: CorePacket): CoreFrame {
   if (packet.kind === 'delta' && (!base || base.subscriptionId !== packet.subscriptionId || base.sequence !== packet.baseSequence)) throw new Error('Delta base mismatch')
   if (packet.kind === 'snapshot' && (packet.processes.removed.length || packet.processes.removedGalaxies.length)) throw new Error('Snapshot contains removals')
@@ -91,12 +90,18 @@ export function applyPacket(base: CoreFrame | null, packet: CorePacket): CoreFra
   const { removed, removedGalaxies, ...metadata } = packet.processes
   void removed
   void removedGalaxies
-  const frame = stateSchema.parse({ ...packet, network: packet.network ?? base?.network, filesystem: packet.filesystem ?? base?.filesystem, processes: { ...metadata,
+  const { kind, baseSequence, events, ...frameMetadata } = packet
+  void kind
+  void baseSequence
+  void events
+  const frame: CoreFrame = { ...frameMetadata, network: packet.network ?? base!.network, filesystem: packet.filesystem ?? base!.filesystem, processes: { ...metadata,
     rows: [...processes.values()].sort((left, right) => left.pid - right.pid),
     galaxies: [...galaxies.values()].sort((left, right) => left.id.localeCompare(right.id)),
-  } })
-  if (packet.network === null && base) frame.network = base.network
-  if (packet.filesystem === null && base) frame.filesystem = base.filesystem
+  } }
+  if (frame.processes.rows.length > 4096 || frame.processes.galaxies.length > 4096 || !validProcessGraph(frame.processes)
+    || frame.intervalMs !== (frame.enabledCollectors === 1 ? (frame.profile === 'eco' ? 2000 : 1000) : (frame.profile === 'eco' ? 5000 : 2000))) {
+    throw new Error('Invalid reconstructed frame')
+  }
   return frame
 }
 
