@@ -28,13 +28,36 @@ export interface UniverseLayout {
 export function selectLodIds(ids: readonly string[], selectedId: string | null | undefined, limit: number): string[] {
   if (ids.length <= limit) return ids as string[]
   if (limit < 1) return []
-  const ranked = ids.map(id => {
+  const ranked: { id: string; hash: number }[] = []
+  const compare = (left: { id: string; hash: number }, right: { id: string; hash: number }) => left.hash - right.hash || left.id.localeCompare(right.id)
+  for (const id of ids) {
     let hash = 2166136261
     for (const character of id) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619)
-    return { id, hash: hash >>> 0 }
-  })
-  ranked.sort((left, right) => left.hash - right.hash || left.id.localeCompare(right.id))
-  const visible = ranked.slice(0, limit).map(row => row.id)
+    const candidate = { id, hash: hash >>> 0 }
+    if (ranked.length < limit) {
+      let slot = ranked.length
+      ranked.push(candidate)
+      while (slot > 0) {
+        const parent = Math.floor((slot - 1) / 2)
+        if (compare(ranked[parent], candidate) >= 0) break
+        ranked[slot] = ranked[parent]
+        slot = parent
+      }
+      ranked[slot] = candidate
+    } else if (compare(candidate, ranked[0]) < 0) {
+      let slot = 0
+      while (slot * 2 + 1 < ranked.length) {
+        let child = slot * 2 + 1
+        if (child + 1 < ranked.length && compare(ranked[child + 1], ranked[child]) > 0) child += 1
+        if (compare(candidate, ranked[child]) >= 0) break
+        ranked[slot] = ranked[child]
+        slot = child
+      }
+      ranked[slot] = candidate
+    }
+  }
+  ranked.sort(compare)
+  const visible = ranked.map(row => row.id)
   if (selectedId && ids.includes(selectedId) && !visible.includes(selectedId)) visible[limit - 1] = selectedId
   return visible
 }

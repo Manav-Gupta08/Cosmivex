@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { connectCore } from '../../apps/desktop/src/transport'
+import { parseApplyP95 } from '../../apps/desktop/universe/metrics'
+import * as metrics from '../../apps/desktop/universe/metrics'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
 import { coreFixture, packetFixture, chunkFixture } from './fixtures'
 
@@ -21,13 +23,14 @@ beforeEach(() => {
   vi.useFakeTimers()
   mock.invoke.mockReset().mockResolvedValue(7)
 })
-afterEach(() => { vi.useRealTimers() })
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
 it('acknowledges validated frames and reports a stalled native stream', async () => {
   const dispose = connectCore()
   await Promise.resolve()
   mock.channel?.onmessage(chunkFixture(packetFixture(fixture)))
   expect(mock.invoke).toHaveBeenCalledWith('ack_core', { subscriptionId: 7, transferId: '1', chunkIndex: 0 })
+  expect(parseApplyP95()).toBeGreaterThanOrEqual(0)
   expect(useCoreStore.getState().status).toBe('connected')
   await vi.advanceTimersByTimeAsync(6000)
   expect(useCoreStore.getState().status).toBe('stale')
@@ -88,6 +91,11 @@ it('resynchronizes a wrong delta base without changing visible state', async () 
 it('acknowledges intermediate chunks but applies only the complete packet', async () => {
   const dispose = connectCore()
   await Promise.resolve()
+  const record = vi.spyOn(metrics, 'recordParseApply')
+  vi.spyOn(performance, 'now')
+    .mockReturnValueOnce(10).mockReturnValueOnce(12)
+    .mockReturnValueOnce(1000).mockReturnValueOnce(1003)
+    .mockReturnValueOnce(1005).mockReturnValueOnce(1006).mockReturnValueOnce(1008)
   const chunk = chunkFixture(packetFixture(fixture))
   const middle = Math.floor(chunk.payload.length / 2)
   mock.channel?.onmessage({ ...chunk, payload: chunk.payload.slice(0, middle), chunkCount: 2 })
@@ -95,5 +103,6 @@ it('acknowledges intermediate chunks but applies only the complete packet', asyn
   expect(mock.invoke).toHaveBeenCalledWith('ack_core', { subscriptionId: 7, transferId: '1', chunkIndex: 0 })
   mock.channel?.onmessage({ ...chunk, payload: chunk.payload.slice(middle), chunkIndex: 1, chunkCount: 2 })
   expect(useCoreStore.getState().frame?.sequence).toBe('1')
+  expect(record).toHaveBeenCalledWith(10, 5, 2, 3)
   dispose()
 })

@@ -1,6 +1,7 @@
 import { Channel, invoke, isTauri } from '@tauri-apps/api/core'
 import type { Profile } from '../../../shared/protocol/core'
 import { applyPacket, ChunkAssembler, reconstructHistory, wireSchema } from '../../../shared/protocol/stream'
+import { recordParseApply } from '../universe/metrics'
 import { useCoreStore } from './state/core'
 
 let subscriptionQueue: Promise<void> = Promise.resolve()
@@ -16,10 +17,14 @@ export function connectCore(): () => void {
   let subscriptionId: number | undefined
   let watchdog: ReturnType<typeof setTimeout> | undefined
   const assembler = new ChunkAssembler()
+  let assemblyWorkMs = 0
+  let measuredTransfer: string | null = null
   let failures = 0
   let resyncPending = false
   const resync = (id: number) => {
     assembler.reset()
+    assemblyWorkMs = 0
+    measuredTransfer = null
     if (resyncPending) return
     failures += 1
     if (failures > 3) { store.fail('Native telemetry remains incompatible. Reconnect to retry.'); return }
@@ -32,6 +37,7 @@ export function connectCore(): () => void {
   const channel = new Channel<unknown>()
   channel.onmessage = raw => {
     if (disposed) return
+    const started = performance.now()
     const result = wireSchema.safeParse(raw)
     if (!result.success) {
       store.fail('Incompatible native transport message. Reconnect to retry.')
@@ -42,9 +48,17 @@ export function connectCore(): () => void {
     try {
       const assembled = assembler.push(chunk)
       if (!assembled) return
+      if (measuredTransfer !== chunk.transferId) { assemblyWorkMs = 0; measuredTransfer = chunk.transferId }
+      const assembledAt = performance.now()
+      assemblyWorkMs += assembledAt - started
       if (assembled.packet) {
         const frame = applyPacket(useCoreStore.getState().frame, assembled.packet)
+        const validated = performance.now()
         store.receive(frame, assembled.wireBytes, performance.now(), assembled.packet)
+        const completed = performance.now()
+        recordParseApply(assemblyWorkMs + completed - assembledAt, assemblyWorkMs, validated - assembledAt, completed - validated)
+        assemblyWorkMs = 0
+        measuredTransfer = null
         failures = 0
       }
       clearTimeout(watchdog)

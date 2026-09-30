@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, X } from 'lucide-react'
 import { useCoreStore } from './state/core'
-import { renderMetrics } from '../universe/metrics'
+import { assemblyP95, movingCadenceP95, parseApplyP95, reconstructionP95, renderMetrics, storeUpdateP95, submissionP95, validationP95 } from '../universe/metrics'
+import { completionP95, frameCpuP95, frameWorkP95, gpuP95, gpuStatus } from '../universe/metrics'
 import { readHistorySessions, readRecordingStatus, resyncCore, setRecording, type HistorySession, type RecordingStatus } from './transport'
 
 export function Diagnostics({ close }: { close: () => void }) {
@@ -14,7 +15,7 @@ export function Diagnostics({ close }: { close: () => void }) {
   const cursor = useCoreStore(state => state.eventCursor)
   const evictions = useCoreStore(state => state.evictedEvents)
   const resourceVisuals = useCoreStore(state => state.resourceVisuals)
-  const [metrics, setMetrics] = useState({ fps: 0, bytesPerSecond: 0, ...renderMetrics })
+  const [metrics, setMetrics] = useState({ fps: 0, bytesPerSecond: 0, totalBytes: 0, submissionP95Ms: null as number | null, movingCadenceP95Ms: null as number | null, parseApplyP95Ms: null as number | null, validationP95Ms: null as number | null, assemblyP95Ms: null as number | null, reconstructionP95Ms: null as number | null, storeUpdateP95Ms: null as number | null, ...renderMetrics })
   const [recording, setRecordingState] = useState<RecordingStatus>({ enabled: false, error: null })
   const [recordingBusy, setRecordingBusy] = useState(false)
   const [sessions, setSessions] = useState<HistorySession[]>([])
@@ -35,7 +36,7 @@ export function Diagnostics({ close }: { close: () => void }) {
       const now = performance.now()
       const bytes = useCoreStore.getState().bytesReceived
       const seconds = (now - previousTime) / 1000
-      setMetrics({ ...renderMetrics, fps: (renderMetrics.frames - previousFrames) / seconds, bytesPerSecond: Math.max(0, bytes - previousBytes) / seconds })
+      setMetrics({ ...renderMetrics, fps: (renderMetrics.frames - previousFrames) / seconds, bytesPerSecond: Math.max(0, bytes - previousBytes) / seconds, totalBytes: bytes, submissionP95Ms: submissionP95(), movingCadenceP95Ms: movingCadenceP95(), parseApplyP95Ms: parseApplyP95(), validationP95Ms: validationP95(), assemblyP95Ms: assemblyP95(), reconstructionP95Ms: reconstructionP95(), storeUpdateP95Ms: storeUpdateP95() })
       previousFrames = renderMetrics.frames
       previousBytes = bytes
       previousTime = now
@@ -59,11 +60,22 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>Frames rendered</dt><dd data-testid="frames-rendered">{metrics.frames}</dd>
       <dt>Last draw calls</dt><dd>{metrics.drawCalls}</dd>
       <dt>CPU submission</dt><dd>{metrics.frames ? `${metrics.submissionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
-      <dt>GPU frame time</dt><dd>Unavailable</dd>
+      <dt>CPU submission p95 (recent frames)</dt><dd data-testid="submission-p95">{metrics.submissionP95Ms === null ? 'Unavailable' : `${metrics.submissionP95Ms.toFixed(2)} ms`}</dd>
+      <dt>Moving frame interval p95</dt><dd data-testid="moving-cadence-p95">{metrics.movingCadenceP95Ms === null ? 'Unavailable' : `${metrics.movingCadenceP95Ms.toFixed(2)} ms`}</dd>
+      <dt>CPU frame work p95 (ms)</dt><dd data-testid="frame-cpu-p95">{frameCpuP95()?.toFixed(2) ?? 'Unavailable'}</dd>
+      <dt>GPU execution p95 (ms)</dt><dd data-testid="gpu-p95">{gpuP95()?.toFixed(2) ?? (gpuStatus.supported ? 'Pending' : 'Unavailable')}</dd>
+      <dt>CPU + GPU work p95 (ms)</dt><dd data-testid="frame-work-p95">{frameWorkP95()?.toFixed(2) ?? 'Unavailable'}</dd>
+      <dt>Completion upper bound p95 (ms)</dt><dd data-testid="completion-p95">{completionP95()?.toFixed(2) ?? 'Unavailable'}</dd>
       <dt>Process instances</dt><dd data-testid="process-instances">{metrics.processInstances}</dd>
       <dt>Galaxy instances</dt><dd data-testid="galaxy-instances">{metrics.galaxyInstances}</dd>
       <dt>Parent links</dt><dd data-testid="parent-links">{metrics.parentLinks}</dd>
-      <dt>Snapshot payload RX</dt><dd>{status === 'connected' ? `${metrics.bytesPerSecond.toFixed(0)} B/s` : 'Unavailable'}</dd>
+      <dt>Snapshot JSON envelopes RX</dt><dd>{status === 'connected' ? `${metrics.bytesPerSecond.toFixed(0)} B/s` : 'Unavailable'}</dd>
+      <dt>Snapshot JSON envelopes total RX</dt><dd data-testid="total-bytes-received">{metrics.totalBytes}</dd>
+      <dt>Frontend parse + apply p95</dt><dd data-testid="parse-apply-p95">{metrics.parseApplyP95Ms === null ? 'Unavailable' : `${metrics.parseApplyP95Ms.toFixed(2)} ms`}</dd>
+      <dt>Packet validation p95</dt><dd data-testid="validation-p95">{metrics.validationP95Ms === null ? 'Unavailable' : `${metrics.validationP95Ms.toFixed(2)} ms`}</dd>
+      <dt>Chunk assembly p95</dt><dd data-testid="assembly-p95">{metrics.assemblyP95Ms === null ? 'Unavailable' : `${metrics.assemblyP95Ms.toFixed(2)} ms`}</dd>
+      <dt>Frame reconstruction p95</dt><dd data-testid="reconstruction-p95">{metrics.reconstructionP95Ms === null ? 'Unavailable' : `${metrics.reconstructionP95Ms.toFixed(2)} ms`}</dd>
+      <dt>Store update p95</dt><dd data-testid="store-update-p95">{metrics.storeUpdateP95Ms === null ? 'Unavailable' : `${metrics.storeUpdateP95Ms.toFixed(2)} ms`}</dd>
       <dt>Last delivery</dt><dd data-testid="last-delivery">{lastDelivery ?? 'Unavailable'}</dd>
       <dt>Full states</dt><dd data-testid="full-snapshots">{fullSnapshots}</dd>
       <dt>Delta batches</dt><dd data-testid="delta-batches">{deltaBatches}</dd>

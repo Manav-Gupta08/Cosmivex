@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { buildLayout, selectLodIds } from '../../apps/desktop/universe/layout'
+import { movingCadenceP95, recordSubmission, renderMetrics, stopMovementSampling, submissionP95 } from '../../apps/desktop/universe/metrics'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
 import { coreFixture, processFixture, galaxyFixture } from './fixtures'
 
@@ -47,4 +48,56 @@ it('keeps stable bounded far-field stars while retaining the selected process', 
   expect(new Set(first).size).toBe(1024)
   expect(selectLodIds(ids, ids[9999], 1024)).toEqual(first)
   expect(selectLodIds(ids.slice(0, 100), null, 1024)).toEqual(ids.slice(0, 100))
+  const ranked = ids.map(id => {
+    let hash = 2166136261
+    for (const character of id) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619)
+    return { id, hash: hash >>> 0 }
+  }).sort((left, right) => left.hash - right.hash || left.id.localeCompare(right.id))
+  const expected = ranked.slice(0, 1024).map(row => row.id)
+  expect(selectLodIds(ids, null, 1024)).toEqual(expected)
+  expect(selectLodIds([...ids].reverse(), null, 1024)).toEqual(expected)
+  expect(selectLodIds(ids, null, 1)).toEqual(expected.slice(0, 1))
+  expect(selectLodIds(ids, null, 0)).toEqual([])
+})
+
+it('keeps only the latest 4096 CPU submission samples for p95', () => {
+  const originalFrames = renderMetrics.frames
+  try {
+    for (let index = 0; index < 4096; index += 1) {
+      renderMetrics.frames += 1
+      recordSubmission(1)
+    }
+    expect(submissionP95()).toBe(1)
+    for (let index = 0; index < 4096; index += 1) {
+      renderMetrics.frames += 1
+      recordSubmission(5)
+    }
+    expect(submissionP95()).toBe(5)
+    expect(renderMetrics.submissionMs).toBe(5)
+  } finally {
+    renderMetrics.frames = originalFrames
+  }
+})
+
+it('samples moving frame intervals without treating gaps between drags as frames', () => {
+  const originalFrames = renderMetrics.frames
+  renderMetrics.cameraMoving = true
+  try {
+    renderMetrics.frames += 1
+    recordSubmission(1, 100)
+    renderMetrics.frames += 1
+    recordSubmission(1, 116)
+    stopMovementSampling()
+    renderMetrics.frames += 1
+    recordSubmission(1, 1000)
+    for (let index = 0; index < 4096; index += 1) {
+      renderMetrics.frames += 1
+      recordSubmission(1, 1016 + index * 20)
+    }
+    expect(movingCadenceP95()).toBe(20)
+  } finally {
+    renderMetrics.cameraMoving = false
+    renderMetrics.frames = originalFrames
+    stopMovementSampling()
+  }
 })
