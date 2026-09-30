@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { BufferAttribute, BufferGeometry, Color, InstancedMesh, Object3D, QuadraticBezierCurve3, Vector3 } from 'three'
+import { BufferGeometry, Color, InstancedMesh, Object3D, QuadraticBezierCurve3, Vector3 } from 'three'
 import type { Profile } from '../../../shared/protocol/core'
 import { useCoreStore } from '../src/state/core'
 import { renderMetrics } from './metrics'
+import { updateLineGeometry } from './resources'
 
 export function NetworkScene({ profile }: { profile: Profile }) {
   const layout = useCoreStore(state => state.networkLayout)
@@ -46,9 +47,7 @@ export function NetworkScene({ profile }: { profile: Profile }) {
     nodes.current.instanceMatrix.needsUpdate = true
     if (nodes.current.instanceColor) nodes.current.instanceColor.needsUpdate = true
     nodes.current.computeBoundingSphere()
-    bridges.current.setAttribute('position', new BufferAttribute(new Float32Array(vertices), 3))
-    bridges.current.setAttribute('color', new BufferAttribute(new Float32Array(colors), 3))
-    bridges.current.computeBoundingSphere()
+    updateLineGeometry(bridges.current, vertices, colors)
     renderMetrics.networkInstances = ids.length
     renderMetrics.networkBridges = linkedIds.current.length
     invalidate()
@@ -97,8 +96,7 @@ function InterfaceFlow({ profile }: { profile: Profile }) {
     mesh.current.instanceMatrix.needsUpdate = true
     if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true
     mesh.current.computeBoundingSphere()
-    geometry.current.setAttribute('position', new BufferAttribute(new Float32Array(vertices), 3))
-    geometry.current.computeBoundingSphere()
+    updateLineGeometry(geometry.current, vertices)
     flow.current.count = 0
     renderMetrics.interfaceInstances = layout.interfaces.length
     invalidate()

@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
-import { BufferAttribute, BufferGeometry, Color, DoubleSide, InstancedMesh, Object3D } from 'three'
+import { BufferGeometry, Color, DoubleSide, InstancedMesh, Object3D } from 'three'
 import { useCoreStore } from '../src/state/core'
 import { galaxyColor } from './layout'
 import { renderMetrics } from './metrics'
+import { updateLineGeometry } from './resources'
 
 export function GalaxySystems() {
   useEffect(() => () => { renderMetrics.galaxyInstances = 0 }, [])
@@ -66,8 +67,7 @@ export function ParentLinks() {
       const end = layout[mode].get(node.id)
       if (start && end) positions.push(...start, ...end)
     }
-    geometry.current.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
-    geometry.current.computeBoundingSphere()
+    updateLineGeometry(geometry.current, positions)
     renderMetrics.parentLinks = positions.length / 6
     invalidate()
   }, [layout, ids, mode, selectedId, selectedGalaxyId, invalidate])

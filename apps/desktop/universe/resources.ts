@@ -1,7 +1,27 @@
-import type { BufferAttribute } from 'three'
+import { BufferAttribute, type BufferGeometry } from 'three'
 import type { ProcessRecord } from '../../../shared/protocol/core'
 
 export interface ResourceLevels { cpuLevel: number | null; memoryLevel: number | null }
+
+export function updateLineGeometry(geometry: BufferGeometry, positions: number[], colors?: number[]) {
+  const position = geometry.getAttribute('position')
+  const color = geometry.getAttribute('color')
+  if (position instanceof BufferAttribute && position.array.length === positions.length
+    && (colors ? color instanceof BufferAttribute && color.array.length === colors.length : !color)) {
+    position.copyArray(positions)
+    position.needsUpdate = true
+    if (colors && color instanceof BufferAttribute) {
+      color.copyArray(colors)
+      color.needsUpdate = true
+    }
+  } else {
+    geometry.dispose()
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+    if (colors) geometry.setAttribute('color', new BufferAttribute(new Float32Array(colors), 3))
+    else geometry.deleteAttribute('color')
+  }
+  geometry.computeBoundingSphere()
+}
 
 export function updateResourceLevels(previous: ReadonlyMap<string, ResourceLevels>, rows: ProcessRecord[]): ReadonlyMap<string, ResourceLevels> {
   const next = new Map<string, ResourceLevels>()

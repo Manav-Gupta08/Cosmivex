@@ -1,9 +1,11 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { processSchema } from '../../shared/protocol/core'
 import { eventSchema } from '../../shared/protocol/stream'
 import { processFixture } from './fixtures'
-import { BufferAttribute } from 'three'
-import { resourceAppearance, updateResourceLevels, mergeUpdateRange } from '../../apps/desktop/universe/resources'
+import { BufferAttribute, BufferGeometry } from 'three'
+import { WebGLAttributes } from 'three/src/renderers/webgl/WebGLAttributes.js'
+import { WebGLGeometries } from 'three/src/renderers/webgl/WebGLGeometries.js'
+import { resourceAppearance, updateResourceLevels, mergeUpdateRange, updateLineGeometry } from '../../apps/desktop/universe/resources'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
 import { coreFixture, galaxyFixture } from './fixtures'
 
@@ -66,4 +68,28 @@ it('does not relayout the universe when native visual levels change', () => {
   store.setResourceVisuals(false)
   expect(useCoreStore.getState().frame?.processes.rows[0].cpuPercent).toBe(25)
   store.setResourceVisuals(true)
+})
+
+it('reuses line buffers and deletes every uploaded buffer across resizing and disposal', () => {
+  const gl = { createBuffer: vi.fn(() => ({})), deleteBuffer: vi.fn(), bindBuffer: vi.fn(), bufferData: vi.fn(), bufferSubData: vi.fn(), ARRAY_BUFFER: 34962, FLOAT: 5126 }
+  const attributes = new WebGLAttributes(gl as unknown as WebGLRenderingContext)
+  const info = { memory: { geometries: 0 } }
+  const geometries = Reflect.construct(WebGLGeometries, [gl, attributes, info, { releaseStatesOfGeometry: vi.fn() }]) as InstanceType<typeof WebGLGeometries>
+  const geometry = new BufferGeometry()
+  const upload = () => { geometries.get({} as never, geometry); geometries.update(geometry) }
+  updateLineGeometry(geometry, [0, 0, 0, 1, 1, 1], [1, 0, 0, 1, 0, 0])
+  upload()
+  const position = geometry.getAttribute('position')
+  updateLineGeometry(geometry, [2, 2, 2, 3, 3, 3], [0, 1, 0, 0, 1, 0])
+  upload()
+  expect(geometry.getAttribute('position')).toBe(position)
+  expect(gl.createBuffer).toHaveBeenCalledTimes(2)
+  expect(gl.bufferSubData).toHaveBeenCalledTimes(2)
+  for (let count = 0; count < 100; count++) {
+    updateLineGeometry(geometry, new Array(count * 6).fill(1))
+    upload()
+  }
+  geometry.dispose()
+  expect(info.memory.geometries).toBe(0)
+  expect(gl.deleteBuffer.mock.calls.length).toBe(gl.createBuffer.mock.calls.length)
 })
