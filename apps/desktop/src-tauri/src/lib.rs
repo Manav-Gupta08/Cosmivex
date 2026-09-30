@@ -10,9 +10,33 @@ mod storage;
 
 use bridge::{Bridge, Frame, RecordingStatus};
 use native::Profile;
+use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use tauri::{ipc::Channel, Manager, State};
 
-struct CoreState(Result<Bridge, String>);
+struct CoreState(Result<Arc<Bridge>, String>);
+
+#[derive(Default)]
+struct HistoryJobs(Arc<AtomicUsize>);
+
+struct HistoryPermit(Arc<AtomicUsize>);
+
+impl HistoryJobs {
+    fn acquire(&self) -> Result<HistoryPermit, String> {
+        self.0.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| (count < 2).then_some(count + 1))
+            .map_err(|_| "History is busy; retry after the current operation")?;
+        Ok(HistoryPermit(self.0.clone()))
+    }
+}
+
+impl Drop for HistoryPermit {
+    fn drop(&mut self) { self.0.fetch_sub(1, Ordering::AcqRel); }
+}
+
+async fn run_history<T: Send + 'static>(jobs: &HistoryJobs, work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    let permit = jobs.acquire()?;
+    tauri::async_runtime::spawn_blocking(move || { let _permit = permit; work() })
+        .await.map_err(|error| error.to_string())?
+}
 
 #[tauri::command]
 async fn subscribe_core(
@@ -65,11 +89,12 @@ fn set_profile(state: State<CoreState>, profile: Profile) -> Result<(), String> 
 
 pub fn run(context: tauri::Context<tauri::Wry>) {
     tauri::Builder::default()
+        .manage(HistoryJobs::default())
         .manage(std::sync::Arc::new(bridge::qualification::PressureState::default()))
         .manage(CoreState(Bridge::new().and_then(|bridge| {
             bridge.set_process_collection(true)?;
             bridge.set_network_collection(true)?;
-            Ok(bridge)
+            Ok(Arc::new(bridge))
         })))
         .invoke_handler(tauri::generate_handler![
             subscribe_core,
@@ -151,18 +176,15 @@ fn filesystem_stop(state: State<CoreState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_recording(
-    state: State<CoreState>,
+async fn set_recording(
+    state: State<'_, CoreState>,
+    jobs: State<'_, HistoryJobs>,
     app: tauri::AppHandle,
     enabled: bool,
 ) -> Result<RecordingStatus, String> {
-    let bridge = state.0.as_ref().map_err(Clone::clone)?;
-    if enabled {
-        let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
-        bridge.start_recording(&directory)
-    } else {
-        bridge.stop_recording()
-    }
+    let bridge = state.0.as_ref().map_err(Clone::clone)?.clone();
+    let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    run_history(&jobs, move || if enabled { bridge.start_recording(&directory) } else { bridge.stop_recording() }).await
 }
 
 #[tauri::command]
@@ -171,21 +193,20 @@ fn recording_status(state: State<CoreState>) -> Result<RecordingStatus, String> 
 }
 
 #[tauri::command]
-fn history_sessions(
-    state: State<CoreState>,
+async fn history_sessions(
+    state: State<'_, CoreState>,
+    jobs: State<'_, HistoryJobs>,
     app: tauri::AppHandle,
 ) -> Result<Vec<storage::SessionInfo>, String> {
     state.0.as_ref().map_err(Clone::clone)?;
     let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    storage::sessions(&path, 50).map_err(|error| error.to_string())
+    run_history(&jobs, move || if !path.exists() { Ok(Vec::new()) } else { storage::sessions(&path, 50).map_err(|error| error.to_string()) }).await
 }
 
 #[tauri::command]
-fn history_events(
-    state: State<CoreState>,
+async fn history_events(
+    state: State<'_, CoreState>,
+    jobs: State<'_, HistoryJobs>,
     app: tauri::AppHandle,
     session: String,
     since_ms: i64,
@@ -195,30 +216,44 @@ fn history_events(
         return Err("Invalid history query".into());
     }
     let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    storage::events(&path, &session, since_ms, 100).map_err(|error| error.to_string())
+    run_history(&jobs, move || if !path.exists() { Ok(Vec::new()) } else { storage::events(&path, &session, since_ms, 100).map_err(|error| error.to_string()) }).await
 }
 
 #[tauri::command]
-fn history_checkpoints(
-    state: State<CoreState>, app: tauri::AppHandle, session: String,
+async fn history_checkpoints(
+    state: State<'_, CoreState>, jobs: State<'_, HistoryJobs>, app: tauri::AppHandle, session: String,
 ) -> Result<Vec<i64>, String> {
     state.0.as_ref().map_err(Clone::clone)?;
     if session.is_empty() || session.len() > 128 { return Err("Invalid history session".into()); }
     let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
-    if !path.exists() { return Ok(Vec::new()); }
-    storage::checkpoint_times(&path, &session).map_err(|error| error.to_string())
+    run_history(&jobs, move || if !path.exists() { Ok(Vec::new()) } else { storage::checkpoint_times(&path, &session).map_err(|error| error.to_string()) }).await
 }
 
 #[tauri::command]
-fn history_checkpoint(
-    state: State<CoreState>, app: tauri::AppHandle, session: String, at_ms: i64,
+async fn history_checkpoint(
+    state: State<'_, CoreState>, jobs: State<'_, HistoryJobs>, app: tauri::AppHandle, session: String, at_ms: i64,
 ) -> Result<Option<storage::ReplayInfo>, String> {
     state.0.as_ref().map_err(Clone::clone)?;
     if session.is_empty() || session.len() > 128 || at_ms < 0 { return Err("Invalid history query".into()); }
     let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("history.sqlite");
-    if !path.exists() { return Ok(None); }
-    storage::replay(&path, &session, at_ms).map_err(|error| error.to_string())
+    run_history(&jobs, move || if !path.exists() { Ok(None) } else { storage::replay(&path, &session, at_ms).map_err(|error| error.to_string()) }).await
+}
+
+#[cfg(test)]
+mod history_job_tests {
+    use super::*;
+
+    #[test]
+    fn bounds_history_jobs_and_releases_permits_on_error() {
+        let jobs = HistoryJobs::default();
+        let first = jobs.acquire().unwrap();
+        let second = jobs.acquire().unwrap();
+        assert!(jobs.acquire().is_err());
+        drop(first);
+        assert!(jobs.acquire().is_ok());
+        drop(second);
+        let failed: Result<(), String> = tauri::async_runtime::block_on(run_history(&jobs, || Err("database unavailable".into())));
+        assert!(failed.is_err());
+        assert_eq!(jobs.0.load(Ordering::Acquire), 0);
+    }
 }

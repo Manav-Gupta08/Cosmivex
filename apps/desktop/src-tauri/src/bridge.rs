@@ -104,6 +104,7 @@ pub struct Bridge {
     engine: Arc<Engine>,
     delivery: Arc<Mutex<Delivery>>,
     recording: Arc<Mutex<Recording>>,
+    recording_transition: Mutex<()>,
     stopping: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
@@ -158,6 +159,7 @@ impl Bridge {
             engine,
             delivery,
             recording,
+            recording_transition: Mutex::new(()),
             stopping,
             worker: Mutex::new(Some(worker)),
         })
@@ -253,10 +255,12 @@ impl Bridge {
     }
 
     pub fn start_recording(&self, directory: &Path) -> Result<RecordingStatus, String> {
+        let _transition = self.recording_transition.lock().map_err(|_| "Recording transition unavailable")?;
+        if self.stopping.load(Ordering::Acquire) { return Err("Core is stopping".into()); }
         if self.recording_status()?.enabled {
             return self.recording_status();
         }
-        self.stop_recording()?;
+        self.stop_recording_locked()?;
         let health = self.delivery.lock().map_err(|_| "Core bridge unavailable")?.latest.1.clone();
         let writer = (|| {
             std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
@@ -301,6 +305,11 @@ impl Bridge {
     }
 
     pub fn stop_recording(&self) -> Result<RecordingStatus, String> {
+        let _transition = self.recording_transition.lock().map_err(|_| "Recording transition unavailable")?;
+        self.stop_recording_locked()
+    }
+
+    fn stop_recording_locked(&self) -> Result<RecordingStatus, String> {
         let worker = {
             let mut state = self.recording.lock().map_err(|_| "Recording state unavailable")?;
             state.sender = None;
@@ -314,8 +323,8 @@ impl Bridge {
     }
 
     pub fn shutdown(&self) {
-        let _ = self.stop_recording();
         self.stopping.store(true, Ordering::Release);
+        let _ = self.stop_recording();
         self.engine.stop();
         if let Ok(mut worker) = self.worker.lock() {
             if let Some(worker) = worker.take() {
@@ -351,7 +360,10 @@ mod tests {
         std::fs::write(&invalid_directory, b"not a directory").unwrap();
         assert!(bridge.start_recording(&invalid_directory).is_err());
         assert!(bridge.recording_status().unwrap().error.is_some());
-        assert!(bridge.start_recording(&directory).unwrap().enabled);
+        std::thread::scope(|scope| {
+            let starts: Vec<_> = (0..4).map(|_| scope.spawn(|| bridge.start_recording(&directory))).collect();
+            for start in starts { assert!(start.join().unwrap().unwrap().enabled); }
+        });
         let initial_sequence = bridge.delivery.lock().unwrap().latest.0;
         bridge.set_profile(Profile::Eco).unwrap();
         assert!(bridge.engine.wait(initial_sequence, 5000).unwrap().is_some());
@@ -359,6 +371,7 @@ mod tests {
         assert!(bridge.stop_recording().is_ok());
         assert!(!bridge.recording_status().unwrap().enabled);
         bridge.shutdown();
+        assert!(bridge.start_recording(&directory).is_err());
         let connection = crate::storage::open(&directory.join("history.sqlite")).unwrap();
         let (sessions, closed, checkpoints): (i64, i64, i64) = connection.query_row(
             "SELECT count(*), count(ended_ms), (SELECT count(*) FROM checkpoints) FROM sessions",
