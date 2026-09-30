@@ -126,7 +126,7 @@ export default function Shell() {
       <div><span className="footer-label">{mode === 'network' ? 'OBSERVED ENDPOINTS' : 'OBSERVED PROCESSES'}</span><strong data-testid={mode === 'network' ? 'connection-count' : 'process-count'}>{mode === 'network' ? frame?.network.connections.length ?? 0 : frame?.processes.rows.length ?? 0}</strong></div>
       <div className="galaxy-count"><span className="footer-label">{mode === 'network' ? 'INTERFACES' : 'GALAXIES'}</span><strong data-testid={mode === 'network' ? 'interface-count' : 'galaxy-count'}>{mode === 'network' ? frame?.network.interfaces.length ?? 0 : frame?.processes.galaxies.length ?? 0}</strong></div>
       <label className="collection-toggle"><input type="checkbox" aria-label={mode === 'network' ? 'Network collection' : 'Process collection'} checked={mode === 'network' ? frame?.network.enabled ?? false : frame?.enabledCollectors === 1} disabled={status !== 'connected' || pending} onChange={event => void toggleCollection(event.target.checked)} /><span>{mode === 'network' ? 'Network collection' : 'Process collection'}</span></label>
-      <div className="privacy"><ShieldCheck size={14} /><span>Read-only</span><span className="footer-divider">/</span><span>History off</span></div>
+      <div className="privacy"><ShieldCheck size={14} /><span>Read-only</span><span className="footer-divider">/</span><span>History opt-in</span></div>
       </>}
     </footer>
   </main>
