@@ -108,8 +108,7 @@ pub fn events(path: &Path, session: &str, since_ms: i64, limit: u32) -> Result<V
     rows
 }
 
-pub fn checkpoint(path: &Path, session: &str, at_ms: i64) -> Result<Option<CheckpointInfo>> {
-    let connection = reader(path)?;
+fn checkpoint(connection: &Connection, session: &str, at_ms: i64) -> Result<Option<CheckpointInfo>> {
     let mut statement = connection.prepare(
         "SELECT sequence, observed_ms, codec, state FROM checkpoints WHERE session_id = ?1 AND codec = 'json' AND observed_ms <= ?2 ORDER BY observed_ms DESC, sequence DESC LIMIT 1"
     )?;
@@ -135,8 +134,13 @@ pub fn checkpoint_times(path: &Path, session: &str) -> Result<Vec<i64>> {
 }
 
 pub fn replay(path: &Path, session: &str, at_ms: i64) -> Result<Option<ReplayInfo>> {
-    let Some(checkpoint) = checkpoint(path, session, at_ms)? else { return Ok(None) };
-    let connection = reader(path)?;
+    let mut connection = reader(path)?;
+    let transaction = connection.transaction()?;
+    replay_snapshot(&transaction, session, at_ms)
+}
+
+fn replay_snapshot(connection: &rusqlite::Transaction<'_>, session: &str, at_ms: i64) -> Result<Option<ReplayInfo>> {
+    let Some(checkpoint) = checkpoint(connection, session, at_ms)? else { return Ok(None) };
     let mut statement = connection.prepare(
         "SELECT sequence, observed_ms, codec, state FROM checkpoints WHERE session_id = ?1 AND sequence > ?2 AND observed_ms <= ?3 ORDER BY sequence LIMIT 257"
     )?;
@@ -336,16 +340,15 @@ fn record_sample(
     if !value.is_finite() || value < 0.0 {
         return Err(Error::InvalidQuery);
     }
-    connection.execute(
+    connection.prepare_cached(
         "INSERT INTO resource_samples(session_id, bucket_ms, entity_id, metric, minimum, maximum, mean, count)
          VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5, 1)
          ON CONFLICT(session_id, bucket_ms, entity_id, metric) DO UPDATE SET
          minimum = min(resource_samples.minimum, excluded.minimum),
          maximum = max(resource_samples.maximum, excluded.maximum),
          mean = (resource_samples.mean * resource_samples.count + excluded.mean) / (resource_samples.count + 1),
-         count = resource_samples.count + 1",
-        params![session, bucket, entity, metric, value],
-    )?;
+            count = resource_samples.count + 1",
+        )?.execute(params![session, bucket, entity, metric, value])?;
     Ok(())
 }
 
@@ -450,6 +453,30 @@ mod tests {
     use crate::{changes::ProcessEvent, native::Engine};
 
     #[test]
+    #[ignore = "isolated resource SQL preparation benchmark"]
+    fn profile_resource_sample_writes() {
+        for trial in 0..5 {
+            let mut connection = Connection::open_in_memory().unwrap();
+            migrate(&mut connection).unwrap();
+            connection.execute("INSERT INTO sessions VALUES ('profile', 1, NULL, 7, 'audit')", []).unwrap();
+            let identities: Vec<_> = (0..1000).map(|index| format!("{index}:1")).collect();
+            let started = std::time::Instant::now();
+            for sample in 0..20 {
+                let transaction = connection.transaction().unwrap();
+                for identity in &identities {
+                    record_sample(&transaction, "profile", sample / 10 * 10_000, identity, "cpu_percent", f64::from(sample as u32)).unwrap();
+                    record_sample(&transaction, "profile", sample / 10 * 10_000, identity, "working_set_bytes", 1_048_576.0).unwrap();
+                }
+                transaction.commit().unwrap();
+            }
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let totals: (i64, i64) = connection.query_row("SELECT count(*), sum(count) FROM resource_samples", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+            assert_eq!(totals, (4000, 40000));
+            println!("resource_sql trial={trial} operations=40000 elapsed_ms={elapsed_ms:.3}");
+        }
+    }
+
+    #[test]
     fn records_events_gaps_and_checkpoints_without_duplicate_history() {
         let directory = std::env::temp_dir().join(format!(
             "universe-recording-{}-{}",
@@ -490,11 +517,11 @@ mod tests {
         assert_eq!(writer.connection.query_row("SELECT count(*) FROM events", [], |row| row.get::<_, i64>(0)).unwrap(), 3);
         assert_eq!(writer.connection.query_row("SELECT count(*) FROM checkpoints", [], |row| row.get::<_, i64>(0)).unwrap(), 2);
         let first_ms = health.observed_at_unix_ms as i64 - 60_000;
-        assert!(checkpoint(&path, &writer.session, first_ms - 1).unwrap().is_none());
-        let earlier = checkpoint(&path, &writer.session, first_ms).unwrap().unwrap();
+        assert!(checkpoint(&reader(&path).unwrap(), &writer.session, first_ms - 1).unwrap().is_none());
+        let earlier = checkpoint(&reader(&path).unwrap(), &writer.session, first_ms).unwrap().unwrap();
         assert_eq!(earlier.observed_ms, first_ms);
         assert_eq!(earlier.state["health"]["sequence"], (health.sequence.parse::<u64>().unwrap() - 1).to_string());
-        let latest = checkpoint(&path, &writer.session, health.observed_at_unix_ms as i64).unwrap().unwrap();
+        let latest = checkpoint(&reader(&path).unwrap(), &writer.session, health.observed_at_unix_ms as i64).unwrap().unwrap();
         assert_eq!(latest.observed_ms, health.observed_at_unix_ms as i64);
         assert_eq!(latest.state["health"]["sequence"], health.sequence);
         assert_eq!(checkpoint_times(&path, &writer.session).unwrap(), [first_ms, health.observed_at_unix_ms as i64]);
@@ -528,6 +555,17 @@ mod tests {
         assert_eq!(later.observed_ms, start + 1000);
         assert!(!later.gap);
         assert_eq!(checkpoint_times(&path, &writer.session).unwrap(), [start, start + 1000]);
+        let mut connection = reader(&path).unwrap();
+        let transaction = connection.transaction().unwrap();
+        assert!(checkpoint(&transaction, &writer.session, start).unwrap().is_some());
+        writer.connection.execute("DELETE FROM checkpoints WHERE session_id = ?1", [&writer.session]).unwrap();
+        let retained = replay_snapshot(&transaction, &writer.session, start + 1000).unwrap().unwrap();
+        assert_eq!(retained.checkpoint.observed_ms, start);
+        assert_eq!(retained.packets.len(), 1);
+        assert_eq!(retained.packets[0]["sequence"], health.sequence);
+        assert!(replay(&path, &writer.session, start + 1000).unwrap().is_none());
+        drop(transaction);
+        drop(connection);
         writer.finish(health.observed_at_unix_ms).unwrap();
         drop(engine);
         std::fs::remove_dir_all(directory).unwrap();
