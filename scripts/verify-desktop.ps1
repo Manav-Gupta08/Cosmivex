@@ -1,4 +1,4 @@
-param([int]$Port = 9223, [switch]$VisibilityOnly, [switch]$ConnectOnly, [switch]$MinimizeOnly)
+param([int]$Port = 9223, [switch]$VisibilityOnly, [switch]$ConnectOnly, [switch]$MinimizeOnly, [switch]$HistoryOnly)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $executable = Join-Path $root 'apps/desktop/src-tauri/target/release/universe-os.exe'
@@ -19,7 +19,7 @@ Push-Location $root
 try {
     $null = [System.IO.Directory]::CreateDirectory((Join-Path $root 'artifacts'))
     $workloadOutput = Join-Path $root 'artifacts/workload-reference.json'
-    if (-not $VisibilityOnly -and -not $ConnectOnly -and -not $MinimizeOnly) {
+    if (-not $VisibilityOnly -and -not $ConnectOnly -and -not $MinimizeOnly -and -not $HistoryOnly) {
         $workload = Start-Process -FilePath (Get-Command node).Source -ArgumentList (Join-Path $root 'tests/process-workload.mjs') -RedirectStandardOutput $workloadOutput -WindowStyle Hidden -PassThru
         $env:UOS_TEST_PID = [string]$workload.Id
         $env:UOS_TEST_PARENT_PID = [string]$PID
@@ -40,7 +40,8 @@ try {
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArgs
     if ($VisibilityOnly -or $ConnectOnly -or $MinimizeOnly) {
         if ($ConnectOnly) { node tests/visibility-smoke.mjs --connect-only } elseif ($MinimizeOnly) { node tests/visibility-smoke.mjs --minimize-only } else { node tests/visibility-smoke.mjs }
-    } else { node tests/runtime-smoke.mjs --native }
+    } elseif ($HistoryOnly) { node tests/runtime-smoke.mjs --native --history-only }
+    else { node tests/runtime-smoke.mjs --native }
     if ($LASTEXITCODE -ne 0) { throw 'Native WebView smoke test failed.' }
     $application.Refresh()
     if ($application.HasExited) { throw 'Desktop exited unexpectedly during inspection.' }

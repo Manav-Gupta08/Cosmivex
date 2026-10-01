@@ -1,9 +1,10 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
 import { CameraControls } from '@react-three/drei'
 import { Color, InstancedMesh, Object3D } from 'three'
 import type { CoreFrame } from '../../../shared/protocol/core'
 import { buildLayout, galaxyColor } from './layout'
+import { RenderBudget } from './RenderBudget'
 
 function RecordedStars({ frame, selectedId, select }: { frame: CoreFrame; selectedId: string | null; select: (id: string) => void }) {
   const mesh = useRef<InstancedMesh>(null)
@@ -36,12 +37,16 @@ function RecordedStars({ frame, selectedId, select }: { frame: CoreFrame; select
 }
 
 export function ReplayScene({ frame, selectedId, select }: { frame: CoreFrame; selectedId: string | null; select: (id: string) => void }) {
+  const [lost, setLost] = useState(false)
   return <section className="universe-scene" aria-label="Historical process viewport">
-    <Canvas frameloop="demand" dpr={1} camera={{ position: [48, 38, 60], fov: 48, near: 0.1, far: 600 }} gl={{ antialias: false, powerPreference: 'low-power', alpha: false }}>
+    {lost ? <div className="renderer-fallback" role="alert"><h2>Graphics context lost</h2><button onClick={() => setLost(false)}>Retry renderer</button></div> :
+    <Canvas frameloop="demand" dpr={1} camera={{ position: [48, 38, 60], fov: 48, near: 0.1, far: 600 }} gl={{ antialias: false, powerPreference: 'low-power', alpha: false }}
+      fallback={<div className="renderer-fallback" role="alert">WebGL is unavailable. Recorded details remain available.</div>}>
       <color attach="background" args={['#090c0e']} />
       <gridHelper args={[160, 40, '#283538', '#141d20']} position={[0, -2, 0]} />
       <RecordedStars frame={frame} selectedId={selectedId} select={select} />
       <CameraControls makeDefault minDistance={2} maxDistance={300} maxPolarAngle={Math.PI * 0.88} />
-    </Canvas>
+      <RenderBudget profile={frame.profile} onFailure={() => setLost(true)} />
+    </Canvas>}
   </section>
 }

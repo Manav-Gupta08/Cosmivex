@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
-import { spawn, fork } from 'node:child_process'
+import { spawn, fork, execFileSync } from 'node:child_process'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { createServer, createConnection } from 'node:net'
 import { createSocket } from 'node:dgram'
@@ -111,6 +111,44 @@ async function verifyHistory() {
   expect(await page.getByRole('complementary', { name: 'Recorded details' }).evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false)
   await page.screenshot({ path: 'artifacts/native-narrow-replay.png' })
   await page.setViewportSize({ width: 1360, height: 820 })
+  const appPid = Number(process.env.UOS_TEST_APP_PID)
+  if (!Number.isSafeInteger(appPid) || appPid <= 0) throw new Error('Native app PID required for replay visibility check')
+  const setWindow = command => expect(() => expect(execFileSync('powershell.exe', ['-NoProfile', '-Command', `
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ReplayWindow { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr handle, int command); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle); }'
+    $handle = (Get-Process -Id ${appPid}).MainWindowHandle
+    if ($handle -eq [IntPtr]::Zero) { throw 'Native replay window missing' }
+    [ReplayWindow]::ShowWindowAsync($handle, ${command}) | Out-Null
+    [ReplayWindow]::IsIconic($handle) -eq ${command === 6 ? '$true' : '$false'}
+  `], { windowsHide: true, encoding: 'utf8' }).trim()).toBe('True')).toPass({ timeout: 10000 })
+  await page.evaluate(() => {
+    const context = document.querySelector('canvas').getContext('webgl2')
+    const original = context.clear
+    window.__replayDrawProbe = { count: 0, restore: () => { context.clear = original } }
+    context.clear = function (...args) { window.__replayDrawProbe.count++; return original.apply(this, args) }
+  })
+  try {
+    await setWindow(6)
+    await page.waitForTimeout(1500)
+    const before = await page.evaluate(() => window.__replayDrawProbe.count)
+    await page.locator('.replay-list button').first().evaluate(button => button.click())
+    await page.waitForTimeout(1500)
+    expect(await page.evaluate(() => window.__replayDrawProbe.count)).toBe(before)
+    await setWindow(9)
+    await expect.poll(() => page.evaluate(() => window.__replayDrawProbe.count)).toBeGreaterThan(before)
+  } finally {
+    await setWindow(9)
+    await page.evaluate(() => { window.__replayDrawProbe.restore(); delete window.__replayDrawProbe })
+  }
+  await page.evaluate(() => {
+    const extension = document.querySelector('canvas').getContext('webgl2').getExtension('WEBGL_lose_context')
+    if (!extension) throw new Error('Context-loss extension unavailable')
+    extension.loseContext()
+  })
+  await expect(page.getByRole('alert')).toHaveText(/Graphics context lost/)
+  await expect(page.getByRole('complementary', { name: 'Recorded details' })).toBeVisible()
+  await page.getByRole('button', { name: 'Retry renderer' }).click()
+  await canvasIsVisible()
+  console.log(JSON.stringify({ replayMinimizedDrawsStable: true, replayRestoreRedraw: true, replayContextRecovery: true }))
   await page.getByRole('button', { name: 'Return to live' }).click()
   await expect(page.getByRole('button', { name: 'Historical replay' })).toBeFocused()
   await expect(page.getByTestId('connection-status')).toHaveText('Native core connected')
@@ -268,7 +306,7 @@ async function verifyNetwork() {
   }
 }
 
-try {
+async function verifyWorkflow() {
   if (!native) await page.goto(endpoint)
   await expect(page.getByTestId('connection-status')).toHaveText(native ? 'Native core connected' : 'Browser preview', { timeout: 20000 })
   if (native) await expect.poll(async () => Number(await page.getByTestId('process-count').innerText()), { timeout: 10000 }).toBeGreaterThan(0)
@@ -514,6 +552,17 @@ try {
   await canvasIsVisible()
   expect(errors).toEqual([])
   console.log(JSON.stringify({ mode: native ? 'native-webview2' : 'browser-preview', desktopLitPixels: desktop.pixels, narrowLitPixels: mobile.pixels, idleFramesStable: true, cameraInteractive: true, rendererRecovery: true, pageErrors: errors }, null, 2))
+}
+
+try {
+  if (native && process.argv.includes('--history-only')) {
+    await expect(page.getByTestId('connection-status')).toHaveText('Native core connected', { timeout: 20000 })
+    await expect.poll(async () => Number(await page.getByTestId('process-count').innerText()), { timeout: 10000 }).toBeGreaterThan(0)
+    await page.setViewportSize({ width: 1360, height: 820 })
+    await page.getByRole('button', { name: 'Engine diagnostics' }).click()
+    await verifyHistory()
+    expect(errors).toEqual([])
+  } else await verifyWorkflow()
 } finally {
   await browser.close()
 }
