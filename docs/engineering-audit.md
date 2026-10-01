@@ -2,8 +2,8 @@
 
 Date: 2026-09-30. Baseline: `02fb415`. Status: OPEN, not release acceptance.
 Latest verification: 2026-10-01, through `aeb039b`.
-Requirements: both the Universe OS master specification and the efficiency audit
-request supplied on this date. Existing architecture is retained. No budgets are
+Scope: the Universe OS specification and resource-efficiency requirements.
+Existing architecture is retained. No budgets are
 waived. This report distinguishes source inspection, prior measurements, new
 regressions, and tests that have not run. Absence of a detected leak is not proof
 of leak freedom.
@@ -21,7 +21,7 @@ Initial classifications use PASS, WARNING, FAIL, NOT IMPLEMENTED and
 NOT VERIFIABLE. The final requirement matrix uses PARTIAL for WARNING, as
 requested. PASS is scoped to the stated property and evidence, never an entire
 subsystem merely because its tests pass. Existing results are historical evidence
-from [phase-12.md](phase-12.md), not new measurements made during this audit.
+from [Performance results](performance.md), not new measurements made during this audit.
 
 ## Initial findings
 
@@ -112,7 +112,7 @@ silently converted into a PASS.
 | Production logging low volume | Bridge error stderr then worker exits | PASS | No per-sample production logging found; no metadata packet logging |
 | Cache size/invalidation/lifetime | Last snapshot maps, PID+creation image cache, singleton file cache | PARTIAL | Bounded by entity caps; retained capacities and GPU caches need soak measurements |
 | Locks fine-grained, no global pipeline mutex | Engine lock excludes OS collection; delivery/record locks | PARTIAL | Journal runs under engine lock, encoding under delivery lock; no contention profile |
-| Least privilege/no file contents/no packets/no AI APIs | Restricted capabilities and metadata APIs | PASS | Config/API inspection and native tests; pressure commands env-gated, no payload collector |
+| Least privilege/no file contents/no packet payloads/no external inference services | Restricted capabilities and metadata APIs | PASS | Config/API inspection and native tests; pressure commands env-gated, no payload collector |
 | Benchmark 10k/50k/100k and 50k events/s | Isolated scale/pressure scripts | PARTIAL | Prior six 60s aggregate runs,120s producer; not complete live high-count scene or end-to-end OS events |
 | Matrix 25/100/500/1000+, churn/network/files/idle/restored | Scattered synthetic and live tests | PARTIAL | No unified measured CPU/RAM/handles/threads/IPC/DB matrix |
 | One-hour and four-hour stability | No completed run | NOT VERIFIABLE | Must collect actual elapsed-time evidence, not extrapolate short trials |
@@ -335,7 +335,7 @@ Two30s sampler smoke runs completed, including ordinary close. These validate
 the harness only and do not replace either required duration. The previous
 one-hour attempt was interrupted after roughly470 seconds, with no completion
 summary; it does not satisfy either long-run requirement. No completed hour-scale
-result is available. The user's subsequent two-hour autonomous interval will use
+result is available. A subsequent two-hour measurement was scheduled as
 a fresh7200s run after release validation, without concurrent builds/benchmarks:
 
 ```powershell

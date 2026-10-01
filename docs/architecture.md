@@ -1,6 +1,8 @@
 # Universe OS: architecture and implementation plan
 
-Status: accepted starting design, before Phase 1 implementation. Windows 11 x64 first.
+Status: original design and acceptance criteria. Windows 11 x64 first.
+See [Engineering audit](engineering-audit.md) for implementation status and
+[Performance results](performance.md) for measurements and outstanding budgets.
 Performance and factual provenance take precedence over effects and feature count.
 
 ## 1. Boundaries and repository
@@ -13,10 +15,10 @@ apps/desktop/
 core/
   include/universe/    public portable C ABI and common contracts
   src/                engine scheduling and latest-state mailbox
-  platform/windows/   Windows collectors (introduced in Phase 2)
+  platform/windows/   Windows collectors
   telemetry/          normalization and aggregation (introduced with collectors)
-  universe/           observed entity graph and grouping (Phase 3)
-  storage/            SQLite writer and migrations (Phase 8)
+  universe/           observed entity graph and grouping
+  storage/            proposed SQLite writer and migrations
   tests/              native executable tests
 shared/protocol/      versioned transport definitions and validation
 tests/                frontend and runtime integration tests
@@ -63,7 +65,7 @@ this limitation. Never claim an exact OS birth/death timestamp from poll time.
 
 ## 3. Native ABI and Tauri protocol
 
-Phase 1: opaque engine handle, create/destroy, stop, wait-for-new-health,
+Foundation: opaque engine handle, create/destroy, stop, wait-for-new-health,
 set-profile. Fixed-width C fields, struct size and ABI version checks. C++ owns
 all allocations and catches exceptions at every ABI boundary. Caller owns output
 structs; no C++ STL objects, exceptions, or borrowed strings cross into Rust.
@@ -83,7 +85,7 @@ health states coalesce. No acknowledgement means no further channel accumulation
 receive a fresh snapshot; stale sequence numbers are ignored. Command validation
 rejects protocol mismatches and unknown profiles. Errors are surfaced in the UI.
 
-Phase 2+ envelope: protocolVersion, sessionId, sequence (decimal string),
+Telemetry envelope: protocolVersion, sessionId, sequence (decimal string),
 baseSequence, kind (snapshot/delta/gap/error), observedAtUnixMs, monotonicNs (string),
 capabilities, upserts, removals, relationships, metrics, droppedEventCount.
 All 64-bit identifiers/counters become strings across JSON; finite bounded numbers
@@ -93,7 +95,7 @@ budget. Enforce size bounds before allocating, 256 KiB batch target, 1 MiB hard 
 chunk full snapshots with generation IDs and atomic commit, never half-apply them.
 On a gap or wrong base sequence, request a new snapshot and discard old deltas.
 
-Phase 1 health wire contract is implemented separately in shared/protocol. Future
+The initial health wire contract is implemented separately in shared/protocol. Future
 commands: subscribe, ack, resync, inspectEntity, setCollectorConfig, queryHistory,
 selectWatchRoot. No kill-process, filesystem-write, shell-execution, packet capture,
 remote-origin IPC permission, or administrative elevation command.
@@ -150,7 +152,7 @@ detail, GPU resource disposal. Layout updates only on topology changes. Picking
 resolves instance IDs back to stable model IDs. Start with demand rendering and
 no bloom; add continuous effects only when data and measured budget justify them.
 
-## 6. SQLite design (Phase 8, not opened in Phase 1)
+## 6. SQLite design
 
 One native writer, prepared statements, batched transactions, foreign keys,
 WAL, synchronous=NORMAL, short busy timeout; bounded read queries on a separate
@@ -211,13 +213,13 @@ logical CPU capacity. Native CPU and WebView CPU must also be separately reporte
 | Budget | Eco | Normal | Cinematic |
 | --- | --- | --- | --- |
 | Process metrics interval (later) | 2 s | 1 s | 1 s |
-| Health interval (Phase 1) | 5 s | 2 s | 2 s |
+| Health interval without collectors | 5 s | 2 s | 2 s |
 | Max visual batches (later) | 2/s | 5/s | 5/s |
 | Active render ceiling | 30 fps | 60 fps | 60 fps |
 | Pixel ratio cap | 1 | 1 | 2 |
 | History buckets (later) | 30 s | 10 s | 10 s |
 
-All profiles: render only on changes in Phase 1, no background animation, pause
+Baseline profiles: render only on changes, no background animation, pause
 rendering when hidden. Demand-rendered idle FPS is zero, not a performance failure.
 Idle whole-app CPU target <1%; normal interaction/monitoring <3% CPU. Native
 baseline private memory <32 MiB; whole-app initial working-set target <250 MiB,
@@ -226,7 +228,7 @@ Normal rendering p95 <=16.7 ms total, CPU submission <=4 ms, GPU <=8 ms where
 timer query available. IPC <1 MiB/s normal, parse+apply p95 <2 ms, native aggregation
 p95 <5 ms, collector interval overrun and dropped counts exposed.
 
-Phase 1: <=1 in-flight IPC frame, constant-size native mailbox, no history writes,
+Initial baseline: <=1 in-flight IPC frame, constant-size native mailbox, no history writes,
 no OS scans, no per-frame React setState. Monitor actual received bytes/sec and
 rendered frames/draw calls. Unknown GPU time, per-core CPU, and memory readouts
 remain unavailable until measured, never invented. Native worker time can later
@@ -238,24 +240,24 @@ reuse, rapid spawn/exit. Record build/hardware/profile/seed and frame/CPU/memory
 IPC metrics. Test idle, orbit, selection, focus, replay, hidden/minimized and
 recovery. Reject unbounded memory growth, preserve interaction by aggregation.
 
-## 8. Delivery and Phase 1 acceptance
+## 8. Implementation scope and acceptance
 
-1. Phase 1: native library, thread-safe bounded health handoff, Tauri bridge,
+- Native library, thread-safe bounded health handoff, Tauri bridge,
    versioned protocol, React/R3F shell, native failure/disconnection states.
-2. Phase 2: real process PID/name/CPU/memory, permission/race tests, first instanced
+- Real process PID/name/CPU/memory, permission/race tests, instanced
    stars; compare sampled values with native tools before declaring completion.
-3. Phase 3: identity-safe hierarchy, inferred galaxy grouping and selection.
-4. Phase 4: normalized lifecycle updates, aggregation, backpressure and recovery.
-5. Phase 5: calibrated CPU/memory mapping and low-noise spike events.
-6. Phase 6: TCP/UDP/interface telemetry and factual connection bridges.
-7. Phase 7: opt-in read-only directory browsing/watch metadata and overflow recovery.
-8. Phase 8: SQLite writer, migrations, retention, disk-error tests.
-9. Phase 9: historical reconstruction, timeline and explicit replay mode.
-10. Phase 10: measured large-count LOD, pooling and GPU optimization.
-11. Phase 11: restrained atmosphere/effects, accessibility and polish.
-12. Phase 12: representative performance qualification and documented limits.
+- Identity-safe hierarchy, inferred galaxy grouping and selection.
+- Normalized lifecycle updates, aggregation, backpressure and recovery.
+- Calibrated CPU/memory mapping and low-noise spike events.
+- TCP/UDP/interface telemetry and factual connection bridges.
+- Opt-in read-only directory browsing/watch metadata and overflow recovery.
+- SQLite writer, migrations, retention, disk-error tests.
+- Historical reconstruction, timeline and explicit replay mode.
+- Measured large-count LOD, pooling and GPU optimization.
+- Restrained atmosphere/effects, accessibility and polish.
+- Representative performance qualification and documented limits.
 
-Phase 1 gates, all required before moving on:
+Foundation acceptance criteria:
 
 - Clean documented Windows builds: CMake Release tests, Cargo tests, frontend
   typecheck/tests/production build, Tauri release executable.
@@ -271,8 +273,6 @@ Phase 1 gates, all required before moving on:
   collectors/process objects/history/network/filesystem controls falsely enabled.
 - Measure initial native and whole-app idle overhead; document method, build,
   duration, results, gaps and any budget deviation. Compilation alone is not done.
-- Commit the coherent verified foundation and annotate minor tag v0.1.0. No major
-  version tag until the user requests one. No branches, remotes, or pushes.
 
 ## References
 
