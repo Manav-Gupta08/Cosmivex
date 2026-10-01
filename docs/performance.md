@@ -254,6 +254,89 @@ the workload. Driver CPU is outside the measured app tree. Independent trials
 and uncontrolled process churn prevent attributing every change to the relevant
 code adjustment. None of these runs establishes ordinary-user CPU compliance.
 
+## Audit Revalidation: October 1
+
+The release was rebuilt after moving four diagnostic frame-percentile
+calculations into the existing one-second metric snapshot. A regression counted
+21 calls per function across initialization plus20 unrelated rerenders before
+the change, and one afterward. The timer updates each value once per second and
+stops on unmount. This is a measured reduction in redundant work, not a claim
+of a proportional whole-application CPU improvement.
+
+Fresh local-input orbit and idle trials used30s warmup and60s sampling on the
+same i7-6700/eight-logical-CPU Windows machine. Builds and other benchmarks were
+not run alongside these measurements.
+
+| Metric | Idle | Local-input orbit |
+| --- | ---: | ---: |
+| Mean normalized whole-app CPU | 0.788% | 5.559% |
+| CPU p95 | 1.536% | 7.183% |
+| Host mean CPU | 0.322% | 0.400% |
+| WebView mean CPU | 0.466% | 5.159% |
+| Mean summed working set | 398.36 MiB | 466.27 MiB |
+| Mean private memory | 171.95 MiB | 228.58 MiB |
+
+Orbit CPU submission/frame-work p95 were0.6/0.6ms; GPU execution3.68ms;
+paired CPU+GPU4.04ms; moving interval16.9ms; parse/apply4.0ms. Orbit's renderer
+and GPU processes used2.259% and2.569% mean normalized CPU respectively.
+Active CPU, parse/apply and memory budgets remain unmet. Differences from earlier
+trials also reflect changing process/network activity and are not an isolated
+before/after attribution. Raw reports:
+`artifacts/idle-release-20261001-124111186.json` and
+`artifacts/orbit-release-20261001-124314003.json`.
+
+Archived WebView CPU profiles measured Network script execution0.062759s over
+15.1728s and Universe0.058458s over15.08585s. These are idle views, not active
+camera or Cinematic allocation profiles. CDP instrumentation and start-up frames
+affect observations; immediately opened diagnostics include cold samples and
+cannot be treated as settled p95 measurements. Profile summaries are
+`artifacts/profile-2026-10-01T07-08-04-928Z.json` (Network/Universe) and
+`artifacts/profile-2026-10-01T07-09-00-133Z.json` (resource visuals on/off).
+Profiles are now timestamped so new runs do not replace historical captures.
+
+A fresh120s isolated pressure run generated6,000,000 events at49,993.38/s,
+retained256, delivered114,688 and explicitly reported5,885,312 gaps. Maximum
+pending transfers remained1; the final acknowledged cursor reached6,000,000
+and drained to0 pending. Envelope rate311,399B/s; parse/apply p954.1ms.
+Ordinary launches rejected both qualification commands. Evidence:
+`artifacts/pressure-release-1790838948307.json`. This is bounded coalescing,
+not lossless delivery, OS collector throughput, or recording-write qualification.
+
+Six fresh 60-second aggregate-rendering trials passed nonblank pixels and
+selected-instance picking, each displaying 1,024 instances. No builds or other
+benchmarks overlapped these trials; other system activity was not controlled.
+
+| Viewport | Input count | Topology, ms | Selection, ms | CPU submission p95, ms | GPU p95, ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1360 x 820 | 10,000 | 45.2 | 4.1 | 0.3 | 0.902 |
+| 1360 x 820 | 50,000 | 164.4 | 17.0 | 0.3 | 0.831 |
+| 1360 x 820 | 100,000 | 334.9 | 21.7 | 0.3 | 0.806 |
+| 400 x 740 | 10,000 | 62.5 | 4.9 | 0.3 | 0.657 |
+| 400 x 740 | 50,000 | 139.0 | 19.0 | 0.3 | 0.640 |
+| 400 x 740 | 100,000 | 217.1 | 38.9 | 0.3 | 0.666 |
+
+Each trial rendered 3,597-3,598 frames with moving interval p95 of 16.8 ms.
+Evidence: `artifacts/scale-audit.log` and `artifacts/scale-release.json`.
+This remains aggregate-scene qualification, not full-detail live rendering at
+100,000 entities. Topology rebuilds still exceed the frame budget.
+
+The subsequent native workflow reproduced a replay restore-test failure.
+Win32 reported success on a newly resolved process window handle while Tauri
+still reported the actual main window minimized. Retaining the original HWND
+and independently checking Tauri state corrected the test target. A separate
+submission guard prevents selection rerenders from drawing while minimized;
+visibility listeners now remain stable across callback changes. No polling
+workaround or temporary controller instrumentation remains.
+
+The clean release through `1c2f809` passes all 71 frontend tests, lint, the
+release build, replay-only and live-visibility checks, and the full native
+workflow with ordinary shutdown/reopen. Full-workflow nonblank-pixel counts
+were 497 desktop and 792 narrow, with no page errors. The soak harness now
+retains its original HWND for visibility and normal WM_CLOSE shutdown; its
+30-second check completed a 30.905-second span and passed shutdown
+(`artifacts/soak-30-20261001-131736145-summary.json`). These checks are not
+hour-scale stability results. Earlier unrelated shutdown hangs remain unproven.
+
 ## Startup and Minimized Behavior
 
 Startup was sampled without warmup while discovering new descendants. The first

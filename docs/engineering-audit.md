@@ -1,7 +1,7 @@
 # Engineering audit
 
 Date: 2026-09-30. Baseline: `02fb415`. Status: OPEN, not release acceptance.
-Latest verification: 2026-10-01, through `aeb039b`.
+Latest verification: 2026-10-01, through `1c2f809`.
 Scope: the Universe OS specification and resource-efficiency requirements.
 Existing architecture is retained. No budgets are
 waived. This report distinguishes source inspection, prior measurements, new
@@ -280,7 +280,8 @@ visibility shutdown passes do not erase earlier unexplained failures.
 | A07 | Cached prepared resource UPSERT | Same40,000-operation in-memory benchmark;4000 rows and40000 aggregate samples in each trial | Disk write volume and in-memory bucket batching not changed |
 | A10 | Footer says History opt-in rather than a false fixed History off | Shell regression verifies policy label; diagnostics retains confirmed status | Does not add a live footer status or redundant polling |
 | A17 | One SQLite read transaction for anchor and delta chain | Concurrent deletion cannot change retained snapshot; new reader sees deletion | In-flight query cancellation and parsed-memory budget remain open |
-| A15 | Share render budget, minimize handling and context-loss recovery with replay | Four controller/timer tests; native replay minimize/restore/context retry and live visibility/close/reopen pass on clean release | Earlier restore-probe failures remain unexplained; sustained replay/suspend coverage remains open |
+| A15 | Share render budget, minimize handling and context-loss recovery with replay; guard paused submissions and keep native listeners stable | Four controller/timer tests; replay and live visibility plus full workflow pass on clean release through1c2f809; restore tests retain the same HWND and independently verify native state | Recent restore failure targeted a different window while the app stayed minimized; older shutdown hangs and sustained replay/suspend coverage remain open |
+| A14 | Sample frame percentiles at initialization and on the existing1Hz diagnostic refresh | Regression fails with21 calls across20 rerenders before; passes with1 after; refresh/unmount verified | Broad Shell subscriptions and Cinematic allocation profiling remain open |
 
 SQL benchmark command:
 
@@ -370,16 +371,33 @@ features are not removed to meet a benchmark.
 
 ### Testing handoff
 
-The committed release through `aeb039b` is available for interactive testing.
-The previously recorded70 frontend/21 Rust/7 native tests and native lifecycle
-checks passed when that release was built; they are not new results from this
-handoff. A subsequent Vitest run crashes before reporting tests with Windows
-access violation0xC0000005 (3221225477/-1073741819), including a single forked
-worker run. Node ESM, npm, bundler/test API imports and TypeScript work. No
-faulting module or cause has been established. Captured output is in
-`artifacts/diagnostics-test.log`. A proposed A14 diagnostics sampling edit was
-removed because it could not be behavior-validated; application sources and
-tests were confirmed identical to the last validated commit. TypeScript passes.
+Subsequent revalidation on2026-10-01 no longer reproduces the Vitest startup
+crash:71 frontend tests (including the new diagnostics regression),21 Rust tests,
+7 rebuilt CTest suites,frontend lint,Clippy and desktop release build pass.
+No toolchain/cache workaround was applied, so the transient cause is unproven.
+Fresh archived CPU profiles, idle/orbit measurements and a120s pressure test are
+reported in [Performance results](performance.md#audit-revalidation-october-1).
+Idle meanCPU0.788% passes its target in this trial; orbit5.559%,parse/apply4.0ms
+and398-466MiB mean working sets do not establish budget compliance.
+All six 60-second aggregate-scale trials now pass nonblank pixels and picking:
+CPU submission p95 is0.3ms and GPU p95 is0.640-0.902ms, but topology rebuilding
+takes45.2-334.9ms. This is not full-detail 100,000-item live qualification.
+
+The clean release through `1c2f809` passes replay-only, live-visibility and the
+full native workflow, including context recovery and strict shutdown/reopen.
+The replay restore failure was reproduced with Tauri still reporting the main
+window minimized after Win32 reported a different HWND restored. Tests now
+retain one handle and check both native states. The controller also guards
+draw submission across minimized rerenders without restarting its listeners.
+No timer workaround remains. The sampler uses the same captured HWND for
+visibility and ordinary WM_CLOSE shutdown; its30s harness check passes.
+These findings do not explain all historical close hangs. Uninterrupted
+long-run tests remain pending; earlier interrupted runs are not relabeled.
+
+The earlier Vitest access violation0xC0000005 and withdrawn unverified A14 edit
+remain historical observations, with output in `artifacts/diagnostics-test.log`.
+The diagnostics optimization was subsequently restored and red/green verified,
+then committed as `0893834`; no toolchain/cache workaround was applied.
 
 Remaining acceptance work includes:
 

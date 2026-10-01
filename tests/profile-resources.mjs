@@ -5,6 +5,8 @@ import { createServer } from 'node:net'
 
 await mkdir('artifacts', { recursive: true })
 const network = process.argv.includes('--network')
+const runId = new Date().toISOString().replace(/[:.]/g, '-')
+const reports = []
 const listener = createServer()
 await new Promise((resolve, reject) => {
   listener.once('error', reject)
@@ -28,14 +30,17 @@ try {
     await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 15000)))
     const { profile } = await session.send('Profiler.stop')
     const after = await session.send('Performance.getMetrics')
-    await writeFile(`artifacts/${label}.cpuprofile`, JSON.stringify(profile))
+    const profilePath = `artifacts/${label}-${runId}.cpuprofile`
+    await writeFile(profilePath, JSON.stringify(profile))
     const previous = new Map(before.metrics.map(metric => [metric.name, metric.value]))
     const durations = Object.fromEntries(after.metrics.filter(metric => /Duration|Timestamp/.test(metric.name)).map(metric => [metric.name, metric.value - previous.get(metric.name)]))
     const samples = new Map()
     for (const id of profile.samples ?? []) samples.set(id, (samples.get(id) ?? 0) + 1)
     const hot = profile.nodes.map(node => ({ name: node.callFrame.functionName, url: node.callFrame.url, line: node.callFrame.lineNumber, hits: samples.get(node.id) ?? 0 }))
       .sort((left, right) => right.hits - left.hits).slice(0, 15)
-    console.log(JSON.stringify({ label, durations, hot }, null, 2))
+    const report = { label, profilePath, durations, hot }
+    reports.push(report)
+    console.log(JSON.stringify(report, null, 2))
   }
   await measure(network ? 'network-view' : 'resources-on')
   await page.getByRole('button', { name: 'Engine diagnostics' }).click()
@@ -47,6 +52,7 @@ try {
   await page.getByRole('button', { name: 'Engine diagnostics' }).click()
   console.log(network ? 'AFTER SWITCHING TO UNIVERSE' : 'AFTER DISABLING', await page.getByRole('complementary').innerText())
   await session.detach()
+  await writeFile(`artifacts/profile-${runId}.json`, JSON.stringify({ capturedAt: runId, network, reports }, null, 2))
 } finally {
   await browser?.close()
   if (application.exitCode === null) application.kill()
