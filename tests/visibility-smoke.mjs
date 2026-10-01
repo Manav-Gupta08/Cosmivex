@@ -4,19 +4,23 @@ import { execFileSync } from 'node:child_process'
 const appPid = Number(process.env.UOS_TEST_APP_PID)
 if (!Number.isSafeInteger(appPid) || appPid <= 0) throw new Error('Native app PID required')
 const endpoint = process.env.UOS_TEST_ENDPOINT ?? 'http://127.0.0.1:9223'
-const setWindow = command => expect(() => expect(execFileSync('powershell.exe', ['-NoProfile', '-Command', `
-  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class NativeWindow { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr handle, int command); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle); }'
-  $window = (Get-Process -Id ${appPid}).MainWindowHandle
-  if ($window -eq [IntPtr]::Zero) { throw 'Native app window missing' }
-  [NativeWindow]::ShowWindowAsync($window, ${command}) | Out-Null
-  [NativeWindow]::IsIconic($window) -eq ${command === 6 ? '$true' : '$false'}
-`], { windowsHide: true, encoding: 'utf8' }).trim()).toBe('True')).toPass({ timeout: 10000 })
 
 let browser
 try {
   await expect(async () => { browser = await chromium.connectOverCDP(endpoint) }).toPass({ timeout: 20000 })
   const page = browser.contexts()[0].pages()[0]
   await expect(page.getByTestId('connection-status')).toHaveText('Native core connected', { timeout: 15000 })
+  const windowHandle = execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-Process -Id ${appPid}).MainWindowHandle.ToInt64().ToString()`], { windowsHide: true, encoding: 'utf8' }).trim()
+  if (!/^[1-9][0-9]*$/.test(windowHandle)) throw new Error('Native app window missing')
+  const setWindow = async command => {
+    await expect(() => expect(execFileSync('powershell.exe', ['-NoProfile', '-Command', `
+      Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class NativeWindow { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr handle, int command); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle); }'
+      $window = [IntPtr]::new(${windowHandle})
+      [NativeWindow]::ShowWindowAsync($window, ${command}) | Out-Null
+      [NativeWindow]::IsIconic($window) -eq ${command === 6 ? '$true' : '$false'}
+    `], { windowsHide: true, encoding: 'utf8' }).trim()).toBe('True')).toPass({ timeout: 10000 })
+    await expect.poll(() => page.evaluate(() => window.__TAURI_INTERNALS__.invoke('plugin:window|is_minimized', { label: 'main' }))).toBe(command === 6)
+  }
   await page.setViewportSize({ width: 1360, height: 820 })
   if (process.argv.includes('--minimize-only')) {
     await setWindow(6)

@@ -113,17 +113,22 @@ async function verifyHistory() {
   await page.setViewportSize({ width: 1360, height: 820 })
   const appPid = Number(process.env.UOS_TEST_APP_PID)
   if (!Number.isSafeInteger(appPid) || appPid <= 0) throw new Error('Native app PID required for replay visibility check')
-  const setWindow = command => expect(() => expect(execFileSync('powershell.exe', ['-NoProfile', '-Command', `
+  const windowHandle = execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-Process -Id ${appPid}).MainWindowHandle.ToInt64().ToString()`], { windowsHide: true, encoding: 'utf8' }).trim()
+  if (!/^[1-9][0-9]*$/.test(windowHandle)) throw new Error('Native replay window missing')
+  const setWindow = async command => {
+    await expect(() => expect(execFileSync('powershell.exe', ['-NoProfile', '-Command', `
     Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ReplayWindow { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr handle, int command); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle); }'
-    $handle = (Get-Process -Id ${appPid}).MainWindowHandle
-    if ($handle -eq [IntPtr]::Zero) { throw 'Native replay window missing' }
+    $handle = [IntPtr]::new(${windowHandle})
     [ReplayWindow]::ShowWindowAsync($handle, ${command}) | Out-Null
     [ReplayWindow]::IsIconic($handle) -eq ${command === 6 ? '$true' : '$false'}
   `], { windowsHide: true, encoding: 'utf8' }).trim()).toBe('True')).toPass({ timeout: 10000 })
+    await expect.poll(() => page.evaluate(() => window.__TAURI_INTERNALS__.invoke('plugin:window|is_minimized', { label: 'main' }))).toBe(command === 6)
+  }
   await page.evaluate(() => {
-    const context = document.querySelector('canvas').getContext('webgl2')
+    const canvas = document.querySelector('canvas')
+    const context = canvas.getContext('webgl2')
     const original = context.clear
-    window.__replayDrawProbe = { count: 0, restore: () => { context.clear = original } }
+    window.__replayDrawProbe = { canvas, count: 0, restore: () => { context.clear = original } }
     context.clear = function (...args) { window.__replayDrawProbe.count++; return original.apply(this, args) }
   })
   try {
@@ -134,7 +139,19 @@ async function verifyHistory() {
     await page.waitForTimeout(1500)
     expect(await page.evaluate(() => window.__replayDrawProbe.count)).toBe(before)
     await setWindow(9)
-    await expect.poll(() => page.evaluate(() => window.__replayDrawProbe.count)).toBeGreaterThan(before)
+    try {
+      await expect.poll(() => page.evaluate(() => window.__replayDrawProbe.count)).toBeGreaterThan(before)
+    } catch (failure) {
+      console.error('Replay page errors', errors)
+      console.error('Replay restore state', await page.evaluate(() => ({
+        sameCanvas: window.__replayDrawProbe.canvas === document.querySelector('canvas'),
+        attached: window.__replayDrawProbe.canvas.isConnected,
+        hidden: document.hidden,
+        contextLost: window.__replayDrawProbe.canvas.getContext('webgl2').isContextLost(),
+        selected: document.querySelector('.replay-list button.selected')?.textContent,
+      })))
+      throw failure
+    }
   } finally {
     await setWindow(9)
     await page.evaluate(() => { window.__replayDrawProbe.restore(); delete window.__replayDrawProbe })

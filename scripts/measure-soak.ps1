@@ -21,6 +21,7 @@ using System.Runtime.InteropServices;
 public static class UniverseSoakWindow {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
 }
 '@
 }
@@ -47,6 +48,9 @@ try {
     if ($WarmupSeconds -gt 0) {
         Get-Counter '\System\System Up Time' -SampleInterval 1 -MaxSamples ($WarmupSeconds + 1) | Out-Null
     }
+    $application.Refresh()
+    $windowHandle = $application.MainWindowHandle
+    if ($windowHandle -eq [IntPtr]::Zero) { throw 'Native soak window missing after warmup.' }
     $clock.Start()
     $count = [int][Math]::Ceiling($DurationSeconds / [double]$IntervalSeconds) + 1
     Get-Counter '\System\System Up Time' -SampleInterval $IntervalSeconds -MaxSamples $count | ForEach-Object {
@@ -91,8 +95,8 @@ try {
         $sample = [pscustomobject]@{
             atUnixMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
             seconds = $now
-            minimized = [UniverseSoakWindow]::IsIconic($application.MainWindowHandle)
-            foreground = [UniverseSoakWindow]::GetForegroundWindow() -eq $application.MainWindowHandle
+            minimized = [UniverseSoakWindow]::IsIconic($windowHandle)
+            foreground = [UniverseSoakWindow]::GetForegroundWindow() -eq $windowHandle
             processCount = $processes.Count
             totalCpuPercent = ($processes.cpuPercent | Measure-Object -Sum).Sum
             workingSetMiB = ($processes.workingSetMiB | Measure-Object -Sum).Sum
@@ -113,7 +117,7 @@ try {
     }
     if ($samples.Count -lt 2 -or $samples[$samples.Count - 1].seconds - $samples[0].seconds -lt $DurationSeconds) { throw 'Measured sample span is shorter than requested.' }
     $application.Refresh()
-    if (-not $application.CloseMainWindow()) { throw 'No responsive native window at soak shutdown.' }
+    if (-not [UniverseSoakWindow]::PostMessageW($windowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Could not request native soak window shutdown.' }
     if (-not $application.WaitForExit(5000)) { throw 'Native soak shutdown exceeded five seconds.' }
     $shutdownPassed = $true
 } catch {

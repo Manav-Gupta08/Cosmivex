@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useEffectEvent, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { Profile } from '../../../shared/protocol/core'
@@ -10,6 +10,8 @@ export function RenderBudget({ profile, onFailure }: { profile: Profile; onFailu
   const lastRender = useRef(-Infinity)
   const frameStarted = useRef(0)
   const gpuTimer = useRef<GpuTimer | null>(null)
+  const paused = useRef(false)
+  const fail = useEffectEvent(onFailure)
   useEffect(() => {
     const timer = new GpuTimer(gl.getContext() as WebGL2RenderingContext, recordGpu)
     gpuTimer.current = timer
@@ -28,10 +30,11 @@ export function RenderBudget({ profile, onFailure }: { profile: Profile; onFailu
       const minimized = nativeWindow ? await nativeWindow.isMinimized().catch(() => false) : false
       if (!active || current !== revision) return
       const hidden = document.hidden || minimized
+      paused.current = hidden
       setFrameloop(hidden ? 'never' : 'demand')
       if (!hidden) invalidate()
     }
-    const lost = (event: Event) => { event.preventDefault(); onFailure() }
+    const lost = (event: Event) => { event.preventDefault(); fail() }
     document.addEventListener('visibilitychange', visibility)
     if (nativeWindow) {
       void nativeWindow.onFocusChanged(visibility).then(unlisten => { if (active) unlistenFocus = unlisten; else unlisten() })
@@ -46,8 +49,9 @@ export function RenderBudget({ profile, onFailure }: { profile: Profile; onFailu
       document.removeEventListener('visibilitychange', visibility)
       gl.domElement.removeEventListener('webglcontextlost', lost)
     }
-  }, [gl, invalidate, onFailure, setFrameloop])
+  }, [gl, invalidate, setFrameloop])
   useFrame(({ gl, scene, camera, invalidate }) => {
+    if (paused.current) return
     const now = performance.now()
     if (now - lastRender.current < 1000 / (profile === 'eco' ? 30 : 60) - 2) {
       invalidate()
