@@ -49,6 +49,8 @@ The complete [architecture and implementation plan](docs/architecture.md) covers
 Windows APIs, privilege limits, event identity, transport, universe model, SQLite
 schema, retention, performance budgets, and all twelve delivery phases.
 See [Phase 11 progress](docs/phase-11.md) for accessibility and idle results;
+[Engineering audit](docs/engineering-audit.md) for the current requirement matrix,
+verified audit fixes and unresolved long-run/resource gates;
 [Phase 12 progress](docs/phase-12.md) for active-orbit release measurements;
 [Phase 10 progress](docs/phase-10.md) for isolated scaling measurements;
 [Phase 9 verification](docs/phase-9.md) for replay results;
