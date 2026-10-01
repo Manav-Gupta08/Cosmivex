@@ -5,6 +5,10 @@ import { assemblyP95, movingCadenceP95, parseApplyP95, reconstructionP95, render
 import { completionP95, frameCpuP95, frameWorkP95, gpuP95, gpuStatus } from '../universe/metrics'
 import { readHistorySessions, readRecordingStatus, resyncCore, setRecording, type HistorySession, type RecordingStatus } from './transport'
 
+function sampleFrameMetrics() {
+  return { frameCpuP95Ms: frameCpuP95(), gpuP95Ms: gpuP95(), frameWorkP95Ms: frameWorkP95(), completionP95Ms: completionP95(), gpuSupported: gpuStatus.supported }
+}
+
 export function Diagnostics({ close }: { close: () => void }) {
   const frame = useCoreStore(state => state.frame)
   const status = useCoreStore(state => state.status)
@@ -15,7 +19,7 @@ export function Diagnostics({ close }: { close: () => void }) {
   const cursor = useCoreStore(state => state.eventCursor)
   const evictions = useCoreStore(state => state.evictedEvents)
   const resourceVisuals = useCoreStore(state => state.resourceVisuals)
-  const [metrics, setMetrics] = useState({ fps: 0, bytesPerSecond: 0, totalBytes: 0, submissionP95Ms: null as number | null, movingCadenceP95Ms: null as number | null, parseApplyP95Ms: null as number | null, validationP95Ms: null as number | null, assemblyP95Ms: null as number | null, reconstructionP95Ms: null as number | null, storeUpdateP95Ms: null as number | null, ...renderMetrics })
+  const [metrics, setMetrics] = useState(() => ({ fps: 0, bytesPerSecond: 0, totalBytes: 0, submissionP95Ms: null as number | null, movingCadenceP95Ms: null as number | null, parseApplyP95Ms: null as number | null, validationP95Ms: null as number | null, assemblyP95Ms: null as number | null, reconstructionP95Ms: null as number | null, storeUpdateP95Ms: null as number | null, ...renderMetrics, ...sampleFrameMetrics() }))
   const [recording, setRecordingState] = useState<RecordingStatus>({ enabled: false, error: null })
   const [recordingBusy, setRecordingBusy] = useState(false)
   const [sessions, setSessions] = useState<HistorySession[]>([])
@@ -36,7 +40,7 @@ export function Diagnostics({ close }: { close: () => void }) {
       const now = performance.now()
       const bytes = useCoreStore.getState().bytesReceived
       const seconds = (now - previousTime) / 1000
-      setMetrics({ ...renderMetrics, fps: (renderMetrics.frames - previousFrames) / seconds, bytesPerSecond: Math.max(0, bytes - previousBytes) / seconds, totalBytes: bytes, submissionP95Ms: submissionP95(), movingCadenceP95Ms: movingCadenceP95(), parseApplyP95Ms: parseApplyP95(), validationP95Ms: validationP95(), assemblyP95Ms: assemblyP95(), reconstructionP95Ms: reconstructionP95(), storeUpdateP95Ms: storeUpdateP95() })
+      setMetrics({ ...renderMetrics, ...sampleFrameMetrics(), fps: (renderMetrics.frames - previousFrames) / seconds, bytesPerSecond: Math.max(0, bytes - previousBytes) / seconds, totalBytes: bytes, submissionP95Ms: submissionP95(), movingCadenceP95Ms: movingCadenceP95(), parseApplyP95Ms: parseApplyP95(), validationP95Ms: validationP95(), assemblyP95Ms: assemblyP95(), reconstructionP95Ms: reconstructionP95(), storeUpdateP95Ms: storeUpdateP95() })
       previousFrames = renderMetrics.frames
       previousBytes = bytes
       previousTime = now
@@ -62,10 +66,10 @@ export function Diagnostics({ close }: { close: () => void }) {
       <dt>CPU submission</dt><dd>{metrics.frames ? `${metrics.submissionMs.toFixed(2)} ms` : 'Unavailable'}</dd>
       <dt>CPU submission p95 (recent frames)</dt><dd data-testid="submission-p95">{metrics.submissionP95Ms === null ? 'Unavailable' : `${metrics.submissionP95Ms.toFixed(2)} ms`}</dd>
       <dt>Moving frame interval p95</dt><dd data-testid="moving-cadence-p95">{metrics.movingCadenceP95Ms === null ? 'Unavailable' : `${metrics.movingCadenceP95Ms.toFixed(2)} ms`}</dd>
-      <dt>CPU frame work p95 (ms)</dt><dd data-testid="frame-cpu-p95">{frameCpuP95()?.toFixed(2) ?? 'Unavailable'}</dd>
-      <dt>GPU execution p95 (ms)</dt><dd data-testid="gpu-p95">{gpuP95()?.toFixed(2) ?? (gpuStatus.supported ? 'Pending' : 'Unavailable')}</dd>
-      <dt>CPU + GPU work p95 (ms)</dt><dd data-testid="frame-work-p95">{frameWorkP95()?.toFixed(2) ?? 'Unavailable'}</dd>
-      <dt>Completion upper bound p95 (ms)</dt><dd data-testid="completion-p95">{completionP95()?.toFixed(2) ?? 'Unavailable'}</dd>
+      <dt>CPU frame work p95 (ms)</dt><dd data-testid="frame-cpu-p95">{metrics.frameCpuP95Ms?.toFixed(2) ?? 'Unavailable'}</dd>
+      <dt>GPU execution p95 (ms)</dt><dd data-testid="gpu-p95">{metrics.gpuP95Ms?.toFixed(2) ?? (metrics.gpuSupported ? 'Pending' : 'Unavailable')}</dd>
+      <dt>CPU + GPU work p95 (ms)</dt><dd data-testid="frame-work-p95">{metrics.frameWorkP95Ms?.toFixed(2) ?? 'Unavailable'}</dd>
+      <dt>Completion upper bound p95 (ms)</dt><dd data-testid="completion-p95">{metrics.completionP95Ms?.toFixed(2) ?? 'Unavailable'}</dd>
       <dt>Process instances</dt><dd data-testid="process-instances">{metrics.processInstances}</dd>
       <dt>Galaxy instances</dt><dd data-testid="galaxy-instances">{metrics.galaxyInstances}</dd>
       <dt>Parent links</dt><dd data-testid="parent-links">{metrics.parentLinks}</dd>

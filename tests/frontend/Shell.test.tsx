@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import Shell from '../../apps/desktop/src/Shell'
+import { Diagnostics } from '../../apps/desktop/src/Diagnostics'
+import * as metrics from '../../apps/desktop/universe/metrics'
 import { useCoreStore } from '../../apps/desktop/src/state/core'
 import { coreFixture, processFixture, galaxyFixture, networkFixture, connectionFixture, filesystemFixture, fileFixture } from './fixtures'
 
@@ -10,7 +12,21 @@ vi.mock('../../apps/desktop/universe/Scene', () => ({
 vi.mock('../../apps/desktop/src/Replay', () => ({
   Replay: ({ close }: { close: () => void }) => <main aria-label="Historical replay"><button onClick={close}>Return to live</button></main>,
 }))
-afterEach(() => { cleanup(); useCoreStore.getState().setViewMode('universe') })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); useCoreStore.getState().setViewMode('universe') })
+
+it('samples frame percentiles only on the diagnostics refresh', () => {
+  vi.useFakeTimers()
+  useCoreStore.getState().fail('Browser preview')
+  const percentiles = [vi.spyOn(metrics, 'frameCpuP95'), vi.spyOn(metrics, 'gpuP95'), vi.spyOn(metrics, 'frameWorkP95'), vi.spyOn(metrics, 'completionP95')]
+  const view = render(<Diagnostics close={() => {}} />)
+  for (let index = 0; index < 20; index++) view.rerender(<Diagnostics close={() => {}} />)
+  for (const percentile of percentiles) expect(percentile).toHaveBeenCalledTimes(1)
+  act(() => vi.advanceTimersByTime(1000))
+  for (const percentile of percentiles) expect(percentile).toHaveBeenCalledTimes(2)
+  view.unmount()
+  act(() => vi.advanceTimersByTime(1000))
+  for (const percentile of percentiles) expect(percentile).toHaveBeenCalledTimes(2)
+})
 
 it('does not fabricate telemetry or enable native profiles in a browser', async () => {
   render(<Shell />)
