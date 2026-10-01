@@ -343,6 +343,15 @@ a fresh7200s run after release validation, without concurrent builds/benchmarks:
 ```
 
 This additional two-hour test does not replace the required four-hour session.
+The7200s attempt on2026-10-01 was subsequently interrupted: its JSONL contains
+280 samples spanning4218.735s (70.31min), with no completion summary and no
+recorded ordinary shutdown. The app was no longer running when inspected.
+Mean normalized app CPU was0.7810%; private commit174.35 ->188.53MiB,
+peak206.46MiB; final3022 handles/137 threads versus3063/155 initially.
+Database+WAL+SHM bytes remained7,880,704. This is partial evidence only, not a
+passed two-hour run, a leak-free verdict, or completed one-hour lifecycle test.
+Raw evidence: `artifacts/soak-7200-20261001-102149285.jsonl`.
+
 The original duration commands remain:
 
 ```powershell
@@ -358,6 +367,32 @@ Visibility is recorded, not assumed. No acceptance tag is warranted, and missing
 features are not removed to meet a benchmark.
 
 ## Remaining risks
+
+### Testing handoff
+
+The committed release through `aeb039b` is available for interactive testing.
+The previously recorded70 frontend/21 Rust/7 native tests and native lifecycle
+checks passed when that release was built; they are not new results from this
+handoff. A subsequent Vitest run crashes before reporting tests with Windows
+access violation0xC0000005 (3221225477/-1073741819), including a single forked
+worker run. Node ESM, npm, bundler/test API imports and TypeScript work. No
+faulting module or cause has been established. Captured output is in
+`artifacts/diagnostics-test.log`. A proposed A14 diagnostics sampling edit was
+removed because it could not be behavior-validated; application sources and
+tests were confirmed identical to the last validated commit. TypeScript passes.
+
+Remaining acceptance work includes:
+
+- Meet and remeasure active CPU, startup memory, parse/apply and frame budgets.
+- Complete uninterrupted long-run tests with shutdown, including four hours;
+   add sustained recording/replay/churn and GPU/queue/resource growth coverage.
+- Resolve A08/A09 storage controls/reporting and retention/crash-session work;
+   A11/A12 lock/conversion costs; A13/A14 frame allocations/diagnostic work;
+   A16 filesystem cancellation and the remaining fault/concurrency matrix.
+- Implement missing individual-thread entities, system/per-core CPU/frequency,
+   physical-memory and disk telemetry, network lifecycle events, and full
+   historical network/filesystem inspectors. These are product features, not
+   cosmetic testing adjustments; current views must not imply those data exist.
 
 The original product includes substantial telemetry/interaction not yet built.
 The current implementation is not in strict master-spec compliance. This audit
